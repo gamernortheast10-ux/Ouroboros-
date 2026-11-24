@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Crypto Jackpot · Live</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+<script src="./ouro-wallet-bridge.js"></script>
+<style>
+:root {
+  --bg: #070b12;
+  --panel: #0f1623;
+  --card: #151d2e;
+  --gold: #f0b90b;
+  --gold2: #fcd535;
+  --blue: #3861fb;
+  --green: #0ecb81;
+  --red: #f6465d;
+  --text: #eaecef;
+  --muted: #848e9c;
+  --orange: #f0b90b;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body {
+  font-family: 'Poppins', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+}
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse at 50% -10%, rgba(240,185,11,0.12) 0%, transparent 45%),
+    radial-gradient(ellipse at 90% 60%, rgba(56,97,251,0.08) 0%, transparent 40%);
+  pointer-events: none; z-index: 0;
+}
+
+.topbar {
+  position: relative; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px;
+}
+.logo {
+  display: flex; align-items: center; gap: 8px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700; font-size: 15px;
+}
+.logo img { width: 28px; height: 28px; border-radius: 50%; }
+.logo span {
+  background: linear-gradient(90deg, #f0b90b, #fcd535);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.bal-box {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(240,185,11,0.1);
+  border: 1px solid rgba(240,185,11,0.3);
+  border-radius: 20px; padding: 6px 12px 6px 8px;
+}
+.bal-box img { width: 20px; height: 20px; border-radius: 50%; }
+.bal-box .amt {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700; font-size: 14px; color: var(--gold);
+}
+
+.jackpot-bar {
+  position: relative; z-index: 10;
+  margin: 0 14px 12px;
+  background: linear-gradient(135deg, #1a2332, #0f1623);
+  border: 1px solid rgba(240,185,11,0.35);
+  border-radius: 14px; padding: 12px;
+  text-align: center;
+}
+.jackpot-bar .label {
+  font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--gold); font-weight: 600; margin-bottom: 2px;
+}
+.jackpot-bar .jp-row {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.jackpot-bar .jp-row img { width: 22px; height: 22px; border-radius: 50%; }
+.jackpot-bar .jp-amt {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 24px; font-weight: 700; color: var(--gold2);
+  text-shadow: 0 0 18px rgba(240,185,11,0.35);
+  animation: glow 2s ease-in-out infinite;
+}
+@keyframes glow {
+  0%, 100% { text-shadow: 0 0 12px rgba(240,185,11,0.25); }
+  50% { text-shadow: 0 0 24px rgba(240,185,11,0.55); }
+}
+
+.machine {
+  position: relative; z-index: 10;
+  margin: 0 12px;
+  background: linear-gradient(180deg, #1a2332, #0f1623);
+  border: 1px solid rgba(56,97,251,0.25);
+  border-radius: 18px;
+  padding: 12px 8px 14px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+}
+.machine-title {
+  text-align: center; font-size: 11px; color: var(--muted);
+  letter-spacing: 1px; margin-bottom: 8px; font-weight: 600;
+}
+.reels-frame {
+  background: #060a10;
+  border: 2px solid rgba(240,185,11,0.5);
+  border-radius: 14px;
+  padding: 6px;
+  display: flex; gap: 5px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 0 24px rgba(0,0,0,0.7);
+}
+.reel {
+  flex: 1;
+  height: 168px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #0c121c;
+  position: relative;
+}
+.reel-strip { display: flex; flex-direction: column; will-change: transform; }
+.symbol {
+  height: 56px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.symbol img {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  object-fit: contain;
+  background: rgba(255,255,255,0.04);
+  padding: 3px;
+}
+.payline {
+  position: absolute; left: 6px; right: 6px; top: 50%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  transform: translateY(-50%);
+  pointer-events: none; z-index: 5;
+  box-shadow: 0 0 10px rgba(240,185,11,0.6);
+}
+.free-badge {
+  position: absolute; top: 8px; right: 12px;
+  background: var(--blue); color: #fff;
+  font-size: 10px; font-weight: 700;
+  padding: 3px 8px; border-radius: 8px;
+  display: none; z-index: 6;
+}
+.free-badge.show { display: block; }
+
+.controls { position: relative; z-index: 10; padding: 12px 14px 6px; }
+.bet-row {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--panel); border-radius: 12px;
+  padding: 10px 12px; margin-bottom: 10px;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+.bet-row .label { font-size: 11px; color: var(--muted); font-weight: 600; }
+.bet-controls { display: flex; align-items: center; gap: 10px; }
+.bet-btn {
+  width: 34px; height: 34px; border-radius: 10px;
+  border: 1px solid rgba(240,185,11,0.3);
+  background: rgba(240,185,11,0.08);
+  color: var(--gold); font-size: 18px; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.bet-btn:active { transform: scale(0.92); }
+.bet-val {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 18px; font-weight: 700; min-width: 64px; text-align: center;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+}
+.bet-val img { width: 18px; height: 18px; border-radius: 50%; }
+
+.quick-bets { display: flex; gap: 5px; margin-bottom: 10px; }
+.q-bet {
+  flex: 1; padding: 8px 2px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.03);
+  color: var(--muted); font-size: 11px; font-weight: 600;
+  text-align: center; cursor: pointer;
+}
+.q-bet.active { border-color: var(--gold); color: var(--gold); background: rgba(240,185,11,0.1); }
+
+.spin-btn {
+  width: 100%; padding: 15px; border: none; border-radius: 14px;
+  background: linear-gradient(135deg, #f0b90b, #fcd535);
+  color: #1a1200; font-size: 17px; font-weight: 800; letter-spacing: 1px;
+  cursor: pointer; box-shadow: 0 4px 20px rgba(240,185,11,0.35);
+  transition: transform 0.12s;
+}
+.spin-btn:active { transform: scale(0.97); }
+.spin-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.auto-row { display: flex; gap: 8px; margin-top: 8px; }
+.auto-btn {
+  flex: 1; padding: 10px; border-radius: 10px;
+  border: 1px solid rgba(56,97,251,0.3);
+  background: rgba(56,97,251,0.1);
+  color: #8ba3ff; font-size: 12px; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+.auto-btn.on { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+.paytable {
+  position: relative; z-index: 10;
+  margin: 10px 14px 12px;
+  background: var(--panel);
+  border-radius: 14px; padding: 12px;
+  border: 1px solid rgba(255,255,255,0.04);
+}
+.paytable h3 {
+  font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 8px; font-weight: 600;
+}
+.pay-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.pay-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; padding: 7px 8px;
+  background: rgba(0,0,0,0.3); border-radius: 8px;
+}
+.pay-item img { width: 24px; height: 24px; border-radius: 50%; }
+.pay-item .name { color: var(--text); font-weight: 500; flex: 1; }
+.pay-item .mult { font-weight: 700; color: var(--gold); font-size: 11px; }
+
+.history {
+  position: relative; z-index: 10;
+  margin: 0 14px 20px;
+  display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px;
+  scrollbar-width: none;
+}
+.history::-webkit-scrollbar { display: none; }
+.hist-chip {
+  flex-shrink: 0; padding: 5px 10px; border-radius: 8px;
+  font-size: 11px; font-weight: 600;
+  background: rgba(255,255,255,0.04);
+  display: flex; align-items: center; gap: 4px;
+}
+.hist-chip img { width: 14px; height: 14px; border-radius: 50%; }
+.hist-chip.win { color: var(--green); border: 1px solid rgba(14,203,129,0.3); }
+.hist-chip.lose { color: var(--red); border: 1px solid rgba(246,70,93,0.25); }
+.hist-chip.jp { color: var(--gold); border: 1px solid rgba(240,185,11,0.45); background: rgba(240,185,11,0.08); }
+
+.overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,0.7);
+  display: none; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.overlay.show { display: flex; }
+.result-box {
+  background: linear-gradient(180deg, #1a2332, #0f1623);
+  border-radius: 20px; padding: 22px 18px;
+  width: 100%; max-width: 300px; text-align: center;
+  border: 2px solid var(--gold);
+  box-shadow: 0 0 40px rgba(240,185,11,0.25);
+  animation: popIn 0.4s cubic-bezier(0.22,1,0.36,1);
+}
+.result-box.lose-box { border-color: #3a4556; box-shadow: none; }
+@keyframes popIn {
+  0% { transform: scale(0.55); opacity: 0; }
+  60% { transform: scale(1.06); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.result-box .icons-row {
+  display: flex; justify-content: center; gap: 10px; margin-bottom: 10px;
+}
+.result-box .icons-row img {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: rgba(255,255,255,0.06); padding: 4px;
+}
+.result-box h2 { font-size: 20px; font-weight: 800; margin-bottom: 6px; }
+.result-box.win-box h2 { color: var(--gold); }
+.result-box.lose-box h2 { color: var(--muted); }
+.result-box .win-amt {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 28px; font-weight: 700; color: var(--green); margin: 8px 0;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.result-box .win-amt img { width: 24px; height: 24px; border-radius: 50%; }
+.result-box .lose-amt {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 24px; font-weight: 700; color: var(--red); margin: 8px 0;
+}
+.result-box .meta { font-size: 11px; color: var(--muted); line-height: 1.5; }
+.result-box button {
+  margin-top: 14px; width: 100%; padding: 12px; border: none; border-radius: 12px;
+  background: linear-gradient(135deg, #f0b90b, #fcd535);
+  color: #1a1200; font-weight: 700; font-size: 14px; cursor: pointer;
+}
+
+.sound-btn {
+  width: 34px; height: 34px; border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  color: var(--text); font-size: 15px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.section-label {
+  position: relative; z-index: 10;
+  padding: 0 14px 4px; font-size: 10px; color: var(--muted);
+  letter-spacing: 1px; font-weight: 600;
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <img src="https://assets.coingecko.com/coins/images/1/small/bitcoin.png" alt="BTC" onerror="this.style.display='none'">
+    <span>CRYPTO JACKPOT</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <button class="sound-btn" id="sound-btn" onclick="toggleSound()">🔊</button>
+    <div class="bal-box">
+      <span class="amt" id="coins">₹0</span>
+    </div>
+  </div>
+</div>
+
+<div class="jackpot-bar">
+  <div class="label">★ CRYPTO MEGA JACKPOT ★</div>
+  <div class="jp-row">
+    <img src="https://assets.coingecko.com/coins/images/1/small/bitcoin.png" alt="BTC" onerror="this.style.display='none'">
+    <div class="jp-amt" id="jackpot">₹50,000</div>
+  </div>
+</div>
+
+<div class="machine">
+  <div class="free-badge" id="free-badge">FREE ×0</div>
+  <div class="machine-title">MATCH 3 CRYPTO · CENTER LINE</div>
+  <div class="reels-frame">
+    <div class="payline"></div>
+    <div class="reel"><div class="reel-strip" id="strip0"></div></div>
+    <div class="reel"><div class="reel-strip" id="strip1"></div></div>
+    <div class="reel"><div class="reel-strip" id="strip2"></div></div>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="bet-row">
+    <span class="label">STAKE (INR)</span>
+    <div class="bet-controls">
+      <button class="bet-btn" onclick="changeBet(-1)">−</button>
+      <div class="bet-val" id="bet-val">
+        <span>₹</span><span id="bet-num">50</span>
+      </div>
+      <button class="bet-btn" onclick="changeBet(1)">+</button>
+    </div>
+  </div>
+  <div class="quick-bets">
+    <div class="q-bet" onclick="setBet(10,this)">₹10</div>
+    <div class="q-bet active" onclick="setBet(50,this)">₹50</div>
+    <div class="q-bet" onclick="setBet(100,this)">₹100</div>
+    <div class="q-bet" onclick="setBet(250,this)">₹250</div>
+    <div class="q-bet" onclick="setBet(500,this)">₹500</div>
+    <div class="q-bet" onclick="setBet(1000,this)">₹1K</div>
+  </div>
+  <button class="spin-btn" id="spin-btn" onclick="spin()">SPIN</button>
+  <div class="auto-row">
+    <button class="auto-btn" id="auto-btn" onclick="toggleAuto()">AUTO SPIN</button>
+  </div>
+</div>
+
+<div class="paytable">
+  <h3>Paytable · 3 match on line</h3>
+  <div class="pay-grid" id="pay-grid"></div>
+</div>
+
+<div class="section-label">RECENT SPINS</div>
+<div class="history" id="history"></div>
+
+<div class="overlay" id="overlay">
+  <div class="result-box win-box" id="result-box">
+    <div class="icons-row" id="res-icons"></div>
+    <h2 id="res-title">BIG WIN!</h2>
+    <div class="win-amt" id="res-amt">
+      <img src="https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png" alt="">
+      <span id="res-amt-num">+1,500</span>
+    </div>
+    <div class="meta" id="res-meta"></div>
+    <button onclick="closeResult()">SPIN AGAIN</button>
+  </div>
+</div>
+
+<script>
+// CoinGecko CDN icons (direct public links)
+const ICONS = {
+  btc:  'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
+  eth:  'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
+  bnb:  'https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png',
+  sol:  'https://assets.coingecko.com/coins/images/4128/small/solana.png',
+  xrp:  'https://assets.coingecko.com/coins/images/44/small/xrp-symbol-white-128.png',
+  doge: 'https://assets.coingecko.com/coins/images/5/small/dogecoin.png',
+  ada:  'https://assets.coingecko.com/coins/images/975/small/cardano.png',
+  avax: 'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png',
+  link: 'https://assets.coingecko.com/coins/images/877/small/chainlink-new-logo.png',
+  matic:'https://assets.coingecko.com/coins/images/4713/small/polygon.png',
+};
+
+const SYMS = [
+  { id:'doge',  name:'DOGE',  icon: ICONS.doge,  w:20, mult:6,   pairMult:1.8 },
+  { id:'ada',   name:'ADA',   icon: ICONS.ada,   w:16, mult:10,  pairMult:2.2 },
+  { id:'xrp',   name:'XRP',   icon: ICONS.xrp,   w:14, mult:15,  pairMult:3.0 },
+  { id:'sol',   name:'SOL',   icon: ICONS.sol,   w:12, mult:25,  pairMult:0 },
+  { id:'link',  name:'LINK',  icon: ICONS.link,  w:10, mult:40,  pairMult:0 },
+  { id:'avax',  name:'AVAX',  icon: ICONS.avax,  w:8,  mult:65,  pairMult:0 },
+  { id:'eth',   name:'ETH',   icon: ICONS.eth,   w:6,  mult:100, pairMult:0 },
+  { id:'btc',   name:'BTC',   icon: ICONS.btc,   w:4,  mult:200, pairMult:0 },
+  { id:'matic', name:'MATIC', icon: ICONS.matic, w:7,  mult:0,   pairMult:0 },  // scatter / free
+  { id:'bnb',   name:'BNB',   icon: ICONS.bnb,   w:3,  mult:0,   pairMult:0 },  // jackpot
+];
+
+const BETS = [10, 25, 50, 100, 250, 500, 1000, 2500];
+let state = {
+  coins: window.OuroBridge ? window.OuroBridge.getBalance() : 0,
+  betIdx: 2,
+  spinning: false,
+  auto: false,
+  freeSpins: 0,
+  jackpot: 50000,
+  history: [],
+  sound: true,
+};
+
+function pickSym() {
+  const total = SYMS.reduce((s, x) => s + x.w, 0);
+  let r = Math.random() * total;
+  for (const s of SYMS) { r -= s.w; if (r <= 0) return s; }
+  return SYMS[0];
+}
+
+function symHTML(s) {
+  return `<div class="symbol" data-id="${s.id}"><img src="${s.icon}" alt="${s.name}" loading="lazy" onerror="this.src='${ICONS.btc}'"></div>`;
+}
+
+function buildStrip(el, count = 28) {
+  const items = [];
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    const s = pickSym();
+    items.push(s);
+    html += symHTML(s);
+  }
+  el.innerHTML = html;
+  return items;
+}
+
+const stripEls = [0,1,2].map(i => document.getElementById('strip' + i));
+const strips = stripEls.map(el => buildStrip(el));
+
+function fmt(n) { return Math.floor(n).toLocaleString('en-IN'); }
+function fmtMoney(n) { return Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function updateUI() {
+  document.getElementById('coins').textContent = '₹' + fmtMoney(state.coins);
+  document.getElementById('bet-num').textContent = fmt(BETS[state.betIdx]);
+  document.getElementById('jackpot').textContent = '₹' + fmt(state.jackpot);
+  const fb = document.getElementById('free-badge');
+  if (state.freeSpins > 0) {
+    fb.textContent = 'FREE ×' + state.freeSpins;
+    fb.classList.add('show');
+  } else fb.classList.remove('show');
+}
+
+function changeBet(dir) {
+  if (state.spinning) return;
+  state.betIdx = Math.max(0, Math.min(BETS.length - 1, state.betIdx + dir));
+  document.querySelectorAll('.q-bet').forEach(q => q.classList.remove('active'));
+  updateUI();
+  beep(400, 0.04);
+}
+function setBet(v, el) {
+  if (state.spinning) return;
+  const idx = BETS.indexOf(v);
+  if (idx >= 0) state.betIdx = idx;
+  document.querySelectorAll('.q-bet').forEach(q => q.classList.remove('active'));
+  if (el) el.classList.add('active');
+  updateUI();
+  beep(440, 0.04);
+}
+
+// Sound
+let actx = null;
+function ensureAudio() {
+  if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume();
+}
+function tone(freq, dur, type, vol, when) {
+  if (!state.sound) return;
+  ensureAudio();
+  const t0 = actx.currentTime + (when || 0);
+  const o = actx.createOscillator();
+  const g = actx.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(freq, t0);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol || 0.08, t0 + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g); g.connect(actx.destination);
+  o.start(t0); o.stop(t0 + dur + 0.02);
+}
+function noiseBurst(dur, vol, when) {
+  if (!state.sound) return;
+  ensureAudio();
+  const t0 = actx.currentTime + (when || 0);
+  const len = Math.floor(actx.sampleRate * dur);
+  const buf = actx.createBuffer(1, len, actx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = actx.createBufferSource();
+  const g = actx.createGain();
+  const f = actx.createBiquadFilter();
+  f.type = 'lowpass'; f.frequency.value = 1200;
+  src.buffer = buf;
+  g.gain.setValueAtTime(vol || 0.05, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  src.connect(f); f.connect(g); g.connect(actx.destination);
+  src.start(t0); src.stop(t0 + dur);
+}
+function beep(freq, dur, type='sine', vol=0.07) {
+  tone(freq, dur, type, vol, 0);
+}
+
+/* SPIN — mechanical reel clicks */
+function playSpinSound() {
+  if (!state.sound) return;
+  ensureAudio();
+  for (let i = 0; i < 22; i++) {
+    const f = 90 + Math.random() * 40 + i * 3;
+    tone(f, 0.04, 'square', 0.03, i * 0.065);
+    if (i % 3 === 0) noiseBurst(0.03, 0.02, i * 0.065);
+  }
+  // three stop thuds
+  [1.45, 1.95, 2.45].forEach((t, i) => {
+    tone(80 - i * 8, 0.12, 'triangle', 0.1, t);
+    noiseBurst(0.08, 0.04, t);
+  });
+}
+
+/* WIN — bright ascending chime + sparkle */
+function playWin(big) {
+  if (!state.sound) return;
+  ensureAudio();
+  if (big) {
+    // major fanfare
+    const melody = [523.25, 659.25, 783.99, 1046.5, 1318.5];
+    melody.forEach((f, i) => {
+      tone(f, 0.28, 'sine', 0.11, i * 0.11);
+      tone(f * 2, 0.2, 'triangle', 0.04, i * 0.11 + 0.02);
+    });
+    // sparkle arpeggio
+    [1568, 1760, 2093, 2349].forEach((f, i) => {
+      tone(f, 0.15, 'sine', 0.05, 0.55 + i * 0.07);
+    });
+    noiseBurst(0.15, 0.03, 0.1);
+  } else {
+    // soft success: C-E-G
+    [523.25, 659.25, 783.99].forEach((f, i) => {
+      tone(f, 0.22, 'sine', 0.1, i * 0.1);
+      tone(f * 2, 0.15, 'triangle', 0.03, i * 0.1 + 0.03);
+    });
+    tone(1046.5, 0.3, 'sine', 0.06, 0.35);
+  }
+}
+
+/* LOSE — low descending sad tone */
+function playLose() {
+  if (!state.sound) return;
+  ensureAudio();
+  // drop: G → E → C (minor feel)
+  tone(196, 0.18, 'triangle', 0.07, 0);
+  tone(164.8, 0.22, 'triangle', 0.06, 0.16);
+  tone(130.8, 0.35, 'sine', 0.08, 0.32);
+  // soft noise thud
+  noiseBurst(0.12, 0.035, 0.05);
+  // muted buzz
+  tone(90, 0.25, 'sawtooth', 0.025, 0.4);
+}
+
+/* JACKPOT — big celebration cascade */
+function playJP() {
+  if (!state.sound) return;
+  ensureAudio();
+  const cascade = [523, 587, 659, 698, 784, 880, 988, 1046, 1175, 1319];
+  cascade.forEach((f, i) => {
+    tone(f, 0.2, 'square', 0.08, i * 0.07);
+    tone(f * 1.5, 0.15, 'sine', 0.03, i * 0.07 + 0.02);
+  });
+  // final boom
+  tone(65, 0.5, 'sine', 0.12, 0.75);
+  noiseBurst(0.3, 0.06, 0.75);
+  [1568, 2093, 2637].forEach((f, i) => tone(f, 0.25, 'sine', 0.05, 0.85 + i * 0.08));
+}
+
+function toggleSound() {
+  state.sound = !state.sound;
+  document.getElementById('sound-btn').textContent = state.sound ? '🔊' : '🔇';
+  if (state.sound) {
+    tone(660, 0.08, 'sine', 0.08, 0);
+    tone(880, 0.1, 'sine', 0.06, 0.08);
+  }
+}
+
+function spin() {
+  if (state.spinning) return;
+  const bet = BETS[state.betIdx];
+  const isFree = state.freeSpins > 0;
+
+  if (!isFree) {
+    if (!Number.isFinite(bet) || bet < 10) {
+      showResult(false, [], 0, 'Minimum bet ₹10', 0);
+      stopAuto();
+      return;
+    }
+    if (window.OuroBridge ? !window.OuroBridge.canAfford(bet) : state.coins < bet) {
+      showResult(false, [], 0, 'Insufficient Balance', bet);
+      stopAuto();
+      if (window.OuroBridge) window.OuroBridge.openTopUp();
+      return;
+    }
+    if (window.OuroBridge) {
+      if (!window.OuroBridge.bet(bet, 'Jackpot Spin')) {
+        stopAuto();
+        window.OuroBridge.openTopUp();
+        return;
+      }
+      state.coins = window.OuroBridge.getBalance();
+    } else {
+      state.coins -= bet;
+    }
+    state.jackpot += Math.floor(bet * 0.05);
+  } else {
+    state.freeSpins--;
+  }
+
+  state.spinning = true;
+  const btn = document.getElementById('spin-btn');
+  btn.disabled = true;
+  btn.textContent = 'SPINNING…';
+  updateUI();
+  playSpinSound();
+
+  const results = [];
+  const anims = [];
+
+  for (let r = 0; r < 3; r++) {
+    const items = buildStrip(stripEls[r], 28);
+    const final = pickSym();
+    const stopIndex = 22;
+    items[stopIndex] = final;
+    const cell = stripEls[r].children[stopIndex];
+    if (cell) {
+      cell.dataset.id = final.id;
+      cell.innerHTML = `<img src="${final.icon}" alt="${final.name}" onerror="this.src='${ICONS.btc}'">`;
+    }
+    results[r] = final;
+
+    const targetY = -(stopIndex - 1) * 56;
+    const el = stripEls[r];
+    el.style.transition = 'none';
+    el.style.transform = 'translateY(0)';
+    void el.offsetHeight;
+    const duration = 1400 + r * 480;
+    el.style.transition = `transform ${duration}ms cubic-bezier(0.15, 0.85, 0.2, 1)`;
+    el.style.transform = `translateY(${targetY}px)`;
+    anims.push(new Promise(res => setTimeout(res, duration + 40)));
+  }
+
+  Promise.all(anims).then(() => {
+    state.spinning = false;
+    btn.disabled = false;
+    btn.textContent = state.freeSpins > 0 ? `FREE (${state.freeSpins})` : 'SPIN';
+    resolveSpin(results, bet, isFree);
+  });
+}
+
+function resolveSpin(results, bet, isFree) {
+  const ids = results.map(r => r.id);
+  let win = 0, title = 'No match', isJP = false, isFreeWin = false;
+
+  // Jackpot: 3× BNB (capped at 1000x bet)
+  if (ids.every(id => id === 'bnb')) {
+    win = Math.round(Math.min(state.jackpot, bet * 1000) * 100) / 100;
+    state.jackpot = 50000;
+    isJP = true;
+    title = 'MEGA JACKPOT!!!';
+    playJP();
+  }
+  // Free spins: 2+ MATIC
+  else if (ids.filter(id => id === 'matic').length >= 2) {
+    const free = ids.filter(id => id === 'matic').length === 3 ? 10 : 5;
+    state.freeSpins += free;
+    isFreeWin = true;
+    title = free + ' FREE SPINS!';
+    playWin(false);
+  }
+  // 3 of a kind
+  else if (ids[0] === ids[1] && ids[1] === ids[2] && ids[0] !== 'matic' && ids[0] !== 'bnb') {
+    const sym = SYMS.find(s => s.id === ids[0]);
+    win = Math.round(bet * sym.mult * 100) / 100;
+    title = sym.mult >= 65 ? 'HUGE WIN!' : sym.mult >= 25 ? 'BIG WIN!' : 'YOU WIN!';
+    playWin(sym.mult >= 40);
+  }
+  // 2 match pair payouts (DOGE 1.8x, ADA 2.2x, XRP 3.0x)
+  else {
+    const pairs = [
+      [ids[0], ids[1]], [ids[1], ids[2]], [ids[0], ids[2]]
+    ];
+    for (const [a, b] of pairs) {
+      if (a === b) {
+        const sym = SYMS.find(s => s.id === a);
+        if (sym && sym.pairMult > 0) {
+          win = Math.round(bet * sym.pairMult * 100) / 100;
+          title = 'PAIR WIN (' + sym.name + ')';
+          playWin(false);
+          break;
+        }
+      }
+    }
+  }
+
+  if (win > 0) {
+    if (window.OuroBridge) {
+      window.OuroBridge.win(win, title);
+      state.coins = window.OuroBridge.getBalance();
+    } else {
+      state.coins += win;
+    }
+  } else if (!isFreeWin && !isJP) playLose();
+
+  state.history.unshift({
+    win: win > 0 || isJP || isFreeWin,
+    jp: isJP,
+    icons: results.map(r => r.icon),
+    text: isJP ? 'JACKPOT' : isFreeWin ? 'FREE' : win > 0 ? '+₹' + fmt(win) : '-₹' + fmt(isFree ? 0 : bet),
+  });
+  if (state.history.length > 12) state.history.pop();
+  renderHistory();
+  updateUI();
+
+  if (win > 0 || isJP || isFreeWin || !state.auto) {
+    showResult(win > 0 || isJP || isFreeWin, results, win, title, bet, isJP, isFreeWin);
+  } else {
+    setTimeout(() => { if (state.auto && !state.spinning) spin(); }, 500);
+  }
+}
+
+function showResult(isWin, results, amount, title, bet, isJP, isFree) {
+  const box = document.getElementById('result-box');
+  box.className = 'result-box ' + (isWin || isJP || isFree ? 'win-box' : 'lose-box');
+  document.getElementById('res-icons').innerHTML = (results || []).map(r =>
+    `<img src="${r.icon}" alt="${r.name}" onerror="this.src='${ICONS.btc}'">`
+  ).join('');
+  document.getElementById('res-title').textContent = title;
+  const amtEl = document.getElementById('res-amt');
+  if (isJP || (isWin && amount > 0)) {
+    amtEl.className = 'win-amt';
+    amtEl.innerHTML = `<span>+₹${fmt(amount)}</span>`;
+  } else if (isFree) {
+    amtEl.className = 'win-amt';
+    amtEl.innerHTML = `<span>FREE SPINS</span>`;
+  } else {
+    amtEl.className = 'lose-amt';
+    amtEl.textContent = amount > 0 || bet ? '-₹' + fmt(bet || amount) : '—';
+  }
+  document.getElementById('res-meta').textContent =
+    isJP ? 'Jackpot paid · pool reset to ₹50,000'
+    : isFree ? 'Play free rounds — no bet deducted'
+    : `Stake ₹${fmt(bet || BETS[state.betIdx])} · Wallet ₹${fmtMoney(state.coins)}`;
+  document.getElementById('overlay').classList.add('show');
+  if (state.auto) setTimeout(closeResult, isWin || isJP || isFree ? 1700 : 700);
+}
+
+function closeResult() {
+  document.getElementById('overlay').classList.remove('show');
+  if (state.auto && !state.spinning) setTimeout(spin, 280);
+}
+
+function renderHistory() {
+  document.getElementById('history').innerHTML = state.history.map(h =>
+    `<div class="hist-chip ${h.jp ? 'jp' : h.win ? 'win' : 'lose'}">
+      ${(h.icons||[]).slice(0,3).map(src => `<img src="${src}" onerror="this.remove()">`).join('')}
+      ${h.text}
+    </div>`
+  ).join('');
+}
+
+function toggleAuto() {
+  state.auto = !state.auto;
+  const btn = document.getElementById('auto-btn');
+  btn.classList.toggle('on', state.auto);
+  btn.textContent = state.auto ? 'STOP AUTO' : 'AUTO SPIN';
+  if (state.auto && !state.spinning) spin();
+}
+function stopAuto() {
+  state.auto = false;
+  const btn = document.getElementById('auto-btn');
+  btn.classList.remove('on');
+  btn.textContent = 'AUTO SPIN';
+}
+
+// Paytable UI
+document.getElementById('pay-grid').innerHTML = SYMS.filter(s => s.mult > 0 || s.id === 'bnb' || s.id === 'matic').map(s =>
+  `<div class="pay-item">
+    <img src="${s.icon}" alt="${s.name}" onerror="this.src='${ICONS.btc}'">
+    <span class="name">${s.name}</span>
+    <span class="mult">${s.id==='bnb'?'JACKPOT':s.id==='matic'?'FREE':('×'+s.mult)}</span>
+  </div>`
+).join('');
+
+if (window.OuroBridge) {
+  state.coins = window.OuroBridge.init({
+    gameId: 'crypto-jackpot',
+    gameTitle: 'Crypto Jackpot',
+    onBalanceChange: (bal) => {
+      state.coins = bal;
+      updateUI();
+    },
+    onDenied: (msg) => {
+      stopAuto();
+      showResult(false, [], 0, msg || 'Insufficient Balance', 0);
+    },
+  });
+}
+updateUI();
+stripEls.forEach(el => { el.style.transform = 'translateY(-56px)'; });
+</script>
+</body>
+</html>

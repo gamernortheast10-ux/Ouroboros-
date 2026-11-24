@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Lucky Wheel</title>
+<script src="./ouro-wallet-bridge.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0a0e14; --panel:#121820; --panel2:#1a222e; --border:rgba(255,255,255,0.07);
+  --gold:#f0c14b; --green:#22c55e; --red:#ef4444; --text:#e8edf5; --muted:#7d8a9e;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'Poppins',system-ui,sans-serif;background:var(--bg);color:var(--text);max-width:430px;margin:0 auto;min-height:100dvh;display:flex;flex-direction:column;user-select:none;overflow-x:hidden}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--panel);border-bottom:1px solid var(--border)}
+.logo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:17px;background:linear-gradient(90deg,#f0c14b,#ef4444);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.bal-box{text-align:right}.bal-box .label{font-size:9px;color:var(--muted);text-transform:uppercase}
+.bal-box .val{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--gold)}
+.sound-btn{width:34px;height:34px;border-radius:10px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:14px;cursor:pointer}
+
+.wheel-area{position:relative;margin:16px auto;width:300px;height:300px}
+.wheel-wrap{width:100%;height:100%;border-radius:50%;position:relative;transition:transform 4s cubic-bezier(0.15,0.85,0.25,1);box-shadow:0 0 0 8px #1e293b,0 0 0 12px #f0c14b,0 12px 40px rgba(0,0,0,0.5);overflow:hidden}
+.wheel-wrap canvas{width:100%;height:100%;display:block}
+.pointer{position:absolute;top:-6px;left:50%;transform:translateX(-50%);z-index:10;width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-top:28px solid #f0c14b;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4))}
+.center-cap{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:36px;height:36px;border-radius:50%;background:radial-gradient(circle,#f0c14b,#b45309);border:3px solid #fff;z-index:5;box-shadow:0 2px 8px rgba(0,0,0,0.4)}
+
+.result-text{text-align:center;font-family:'Space Grotesk',sans-serif;font-size:24px;font-weight:700;color:var(--gold);margin:8px 0;min-height:32px}
+
+.controls{padding:12px 14px 16px;background:var(--panel);border-top:1px solid var(--border);margin-top:auto}
+.bet-row{display:flex;gap:10px;margin-bottom:10px}
+.box{flex:1;background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:10px 12px}
+.box label{font-size:10px;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase}
+.box input{width:100%;background:transparent;border:none;outline:none;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700}
+.chips{display:flex;gap:6px;margin-bottom:12px}
+.chip{flex:1;padding:8px 4px;border-radius:8px;background:var(--panel2);border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--muted);text-align:center;cursor:pointer}
+.chip.active{border-color:var(--gold);color:var(--gold)}
+.btn-spin{width:100%;border:none;border-radius:14px;padding:16px;font-size:16px;font-weight:800;cursor:pointer;background:linear-gradient(180deg,#f0c14b,#d97706);color:#1a0a00;box-shadow:0 4px 20px rgba(240,193,75,0.4)}
+.btn-spin:disabled{opacity:0.45;cursor:not-allowed}
+
+.pay-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:8px 14px 4px}
+.pay-item{background:var(--panel2);border-radius:8px;padding:6px;text-align:center;font-size:11px;border:1px solid var(--border)}
+.pay-item .m{font-weight:700;color:var(--gold);font-family:'JetBrains Mono',monospace}
+
+.toast{position:fixed;top:58px;left:50%;transform:translateX(-50%) translateY(-16px);background:var(--panel2);border:1px solid var(--border);padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;z-index:100;opacity:0;transition:all 0.28s;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.win{border-color:#22c55e;color:#4ade80}
+.toast.lose{border-color:#ef4444;color:#f87171}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">LUCKY WHEEL</div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <button class="sound-btn" id="soundBtn" onclick="toggleSound()">🔊</button>
+    <div class="bal-box"><div class="label">Balance</div><div class="val" id="balance">₹0.00</div></div>
+  </div>
+</div>
+
+<div class="wheel-area">
+  <div class="pointer"></div>
+  <div class="wheel-wrap" id="wheel">
+    <canvas id="wheelCanvas" width="300" height="300"></canvas>
+  </div>
+  <div class="center-cap"></div>
+</div>
+<div class="result-text" id="resultText">Spin to win</div>
+
+<div class="pay-grid" id="payGrid"></div>
+
+<div class="controls">
+  <div class="bet-row">
+    <div class="box"><label>Bet Amount</label><input type="number" id="betAmt" value="50" min="10" step="10"></div>
+  </div>
+  <div class="chips">
+    <div class="chip" onclick="setBet(20,this)">₹20</div>
+    <div class="chip active" onclick="setBet(50,this)">₹50</div>
+    <div class="chip" onclick="setBet(100,this)">₹100</div>
+    <div class="chip" onclick="setBet(250,this)">₹250</div>
+  </div>
+  <button class="btn-spin" id="btnSpin" onclick="spin()">SPIN</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const SEGMENTS = [
+  {label:'0.2x', mult:0.2, color:'#64748b'},
+  {label:'0.5x', mult:0.5, color:'#f97316'},
+  {label:'1.2x', mult:1.2, color:'#3b82f6'},
+  {label:'0x',   mult:0.0, color:'#ef4444'},
+  {label:'1.5x', mult:1.5, color:'#14b8a6'},
+  {label:'0.4x', mult:0.4, color:'#8b5cf6'},
+  {label:'2.0x', mult:2.0, color:'#22c55e'},
+  {label:'0x',   mult:0.0, color:'#dc2626'},
+  {label:'0.8x', mult:0.8, color:'#06b6d4'},
+  {label:'3.8x', mult:3.8, color:'#f0c14b'},
+  {label:'0.2x', mult:0.2, color:'#475569'},
+  {label:'0.4x', mult:0.4, color:'#ec4899'},
+];
+
+let balance=window.OuroBridge?window.OuroBridge.getBalance():0,soundOn=true,spinning=false,rotation=0,audioCtx=null;
+
+function ensureAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext);if(audioCtx.state==='suspended')audioCtx.resume()}
+function tone(f,d,t='sine',v=0.08,w=0){if(!soundOn)return;ensureAudio();const t0=audioCtx.currentTime+w;const o=audioCtx.createOscillator();const g=audioCtx.createGain();o.type=t;o.frequency.setValueAtTime(f,t0);g.gain.setValueAtTime(0.0001,t0);g.gain.exponentialRampToValueAtTime(v,t0+0.015);g.gain.exponentialRampToValueAtTime(0.0001,t0+d);o.connect(g);g.connect(audioCtx.destination);o.start(t0);o.stop(t0+d+0.02)}
+function playSpin(){for(let i=0;i<20;i++)tone(200+i*15,0.05,'square',0.025,i*0.08)}
+function playWin(big){const notes=big?[523,659,784,1046,1318]:[523,659,784];notes.forEach((f,i)=>tone(f,0.15,'sine',0.08,i*0.08))}
+function playLose(){tone(180,0.12,'triangle',0.05);tone(120,0.18,'triangle',0.04,0.1)}
+function toggleSound(){soundOn=!soundOn;document.getElementById('soundBtn').textContent=soundOn?'🔊':'🔇';if(soundOn)tone(600,0.07)}
+function fmt(n){return n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function updateBal(){document.getElementById('balance').textContent='₹'+fmt(balance)}
+function showToast(msg,type){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(type?' '+type:'');setTimeout(()=>t.classList.remove('show'),2200)}
+function setBet(v,el){document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));if(el)el.classList.add('active');document.getElementById('betAmt').value=v}
+
+function drawWheel(){
+  const canvas=document.getElementById('wheelCanvas');
+  const ctx=canvas.getContext('2d');
+  const cx=150,cy=150,r=148;
+  const arc=Math.PI*2/SEGMENTS.length;
+  ctx.clearRect(0,0,300,300);
+  SEGMENTS.forEach((seg,i)=>{
+    const start=i*arc-Math.PI/2;
+    ctx.beginPath();
+    ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,r,start,start+arc);
+    ctx.closePath();
+    ctx.fillStyle=seg.color;
+    ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,0.3)';
+    ctx.lineWidth=2;
+    ctx.stroke();
+    // text
+    ctx.save();
+    ctx.translate(cx,cy);
+    ctx.rotate(start+arc/2);
+    ctx.textAlign='right';
+    ctx.fillStyle='#fff';
+    ctx.font='bold 13px Space Grotesk,sans-serif';
+    ctx.shadowColor='rgba(0,0,0,0.5)';
+    ctx.shadowBlur=3;
+    ctx.fillText(seg.label,r-12,4);
+    ctx.restore();
+  });
+}
+
+function spin(){
+  if(spinning)return;
+  const amt=+document.getElementById('betAmt').value;
+  if(!amt||amt<10)return showToast('Min bet ₹10');
+  if(window.OuroBridge?!window.OuroBridge.canAfford(amt):amt>balance){
+    showToast('Insufficient balance — Top Up','lose');
+    if(window.OuroBridge)window.OuroBridge.openTopUp();
+    return;
+  }
+  if(window.OuroBridge){
+    if(!window.OuroBridge.bet(amt,'Lucky Wheel')){window.OuroBridge.openTopUp();return;}
+    balance=window.OuroBridge.getBalance();
+  } else {
+    balance-=amt;
+  }
+  updateBal();spinning=true;
+  document.getElementById('btnSpin').disabled=true;
+  document.getElementById('resultText').textContent='...';
+
+  playSpin();
+  const idx=Math.floor(Math.random()*SEGMENTS.length);
+  const seg=SEGMENTS[idx];
+  const arc=360/SEGMENTS.length;
+  // pointer is at top, segments drawn from -90deg
+  const targetAngle=360*6 + (360-idx*arc - arc/2);
+  rotation+=targetAngle;
+  document.getElementById('wheel').style.transform='rotate('+rotation+'deg)';
+
+  setTimeout(()=>{
+    const payout=Math.round(amt*seg.mult*100)/100;
+    const profit=payout-amt;
+    if(window.OuroBridge&&payout>0){
+      window.OuroBridge.win(payout,'Lucky Wheel '+seg.label);
+      balance=window.OuroBridge.getBalance();
+    } else {
+      balance+=payout;
+    }
+    updateBal();
+    document.getElementById('resultText').textContent=seg.label;
+    if(seg.mult>=2)playWin(seg.mult>=5);
+    else if(seg.mult>=1)playWin(false);
+    else playLose();
+    showToast(seg.label+' · '+(profit>=0?'+':'')+'₹'+fmt(profit),profit>=0?'win':'lose');
+    spinning=false;
+    document.getElementById('btnSpin').disabled=false;
+  },4200);
+}
+
+// paytable
+document.getElementById('payGrid').innerHTML=SEGMENTS.filter((s,i,a)=>a.findIndex(x=>x.mult===s.mult)===i).map(s=>
+  '<div class="pay-item"><div class="m">'+s.label+'</div></div>'
+).join('');
+
+if(window.OuroBridge){
+  balance=window.OuroBridge.init({
+    gameId:'lucky-wheel',
+    gameTitle:'Lucky Wheel',
+    onBalanceChange:(bal)=>{balance=bal;updateBal();},
+    onDenied:(msg)=>showToast(msg,'lose'),
+  });
+}
+drawWheel();
+updateBal();
+</script>
+</body>
+</html>

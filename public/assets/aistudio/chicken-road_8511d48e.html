@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Chicken Road · Risk</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Space+Grotesk:wght@600;700&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+<script src="./ouro-wallet-bridge.js"></script>
+<style>
+:root {
+  --bg: #0c1018;
+  --panel: #151b28;
+  --panel2: #1c2436;
+  --border: rgba(255,255,255,0.07);
+  --gold: #f0c14b;
+  --green: #22c55e;
+  --red: #ef4444;
+  --orange: #f97316;
+  --text: #e8edf5;
+  --muted: #8b95a8;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body {
+  font-family: 'Poppins', system-ui, sans-serif;
+  background: var(--bg); color: var(--text);
+  max-width: 430px; margin: 0 auto; min-height: 100dvh;
+  overflow-x: hidden; display: flex; flex-direction: column; user-select: none;
+}
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.logo {
+  font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 16px;
+  background: linear-gradient(90deg, #f97316, #f0c14b);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.bal-box { text-align: right; }
+.bal-box .label { font-size: 9px; color: var(--muted); text-transform: uppercase; }
+.bal-box .val { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; color: var(--gold); }
+.sound-btn {
+  width: 34px; height: 34px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--panel2);
+  color: var(--text); font-size: 14px; cursor: pointer;
+}
+
+/* Road Stage */
+.stage {
+  position: relative; margin: 10px 12px;
+  background: #1a2332; border-radius: 16px; border: 1px solid var(--border);
+  overflow: hidden; height: 340px;
+}
+.road {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    #2a3344 0px, #2a3344 48px,
+    #222b3a 48px, #222b3a 52px
+  );
+}
+.lane-line {
+  position: absolute; top: 0; bottom: 0; width: 3px;
+  background: repeating-linear-gradient(180deg, #f0c14b 0 12px, transparent 12px 24px);
+  opacity: 0.35;
+}
+.chicken {
+  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  font-size: 36px; z-index: 20;
+  transition: left 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4));
+}
+.chicken.hit {
+  animation: hitShake 0.45s ease-out forwards;
+  filter: grayscale(0.75) drop-shadow(0 0 12px rgba(239,68,68,0.8));
+}
+@keyframes hitShake {
+  0% { transform: translateY(-50%) scale(1) rotate(0); }
+  25% { transform: translateY(-50%) scale(0.85) rotate(-18deg); }
+  65% { transform: translateY(-50%) scale(0.8) rotate(14deg); }
+  100% { transform: translateY(-50%) scale(0.75) rotate(-8deg); opacity: 0.7; }
+}
+.car {
+  position: absolute; font-size: 32px; z-index: 18;
+  transition: top 0.38s linear;
+}
+.blast-burst {
+  position: absolute; z-index: 26; font-size: 46px;
+  transform: translate(-50%, -50%) scale(0.3);
+  pointer-events: none;
+  animation: blastPop 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  filter: drop-shadow(0 0 18px rgba(249,115,22,0.9));
+}
+@keyframes blastPop {
+  0% { transform: translate(-50%, -50%) scale(0.3); opacity: 1; }
+  45% { transform: translate(-50%, -50%) scale(1.35); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.65); opacity: 0; }
+}
+.mult-hud {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.65); border: 1px solid var(--border);
+  border-radius: 12px; padding: 8px 18px; text-align: center; z-index: 25;
+}
+.mult-hud .val {
+  font-family: 'Space Grotesk', sans-serif; font-size: 28px; font-weight: 700; color: var(--gold);
+}
+.mult-hud .lab { font-size: 10px; color: var(--muted); }
+.step-info {
+  position: absolute; bottom: 10px; left: 0; right: 0;
+  text-align: center; font-size: 12px; color: var(--muted); z-index: 20;
+}
+
+/* Controls */
+.controls {
+  padding: 12px 14px; background: var(--panel); border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+.bet-row { display: flex; gap: 10px; margin-bottom: 10px; }
+.bet-box {
+  flex: 1; background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 10px 12px;
+}
+.bet-box label { font-size: 10px; color: var(--muted); display: block; margin-bottom: 4px; }
+.bet-box input {
+  width: 100%; background: transparent; border: none; outline: none;
+  color: var(--text); font-family: 'JetBrains Mono', monospace;
+  font-size: 18px; font-weight: 700;
+}
+.chips { display: flex; gap: 6px; margin-bottom: 12px; }
+.chip {
+  flex: 1; padding: 8px 4px; border-radius: 8px;
+  background: var(--panel2); border: 1px solid var(--border);
+  font-size: 12px; font-weight: 600; color: var(--muted); text-align: center; cursor: pointer;
+}
+.chip.active { border-color: var(--gold); color: var(--gold); }
+
+.action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn {
+  border: none; border-radius: 14px; padding: 15px 8px;
+  font-size: 15px; font-weight: 800; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  transition: transform 0.12s;
+}
+.btn:active { transform: scale(0.96); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-start {
+  background: linear-gradient(180deg, #f97316, #ea580c); color: #fff;
+  box-shadow: 0 4px 16px rgba(249,115,22,0.35);
+}
+.btn-go {
+  background: linear-gradient(180deg, #22c55e, #16a34a); color: #04120a;
+  box-shadow: 0 4px 16px rgba(34,197,94,0.35);
+}
+.btn-cash {
+  background: linear-gradient(180deg, #3b82f6, #2563eb); color: #fff;
+  box-shadow: 0 4px 16px rgba(59,130,246,0.35);
+}
+.btn small { font-size: 10px; font-weight: 500; opacity: 0.85; }
+
+/* Lanes preview */
+.lanes-preview {
+  display: flex; gap: 4px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 2px;
+}
+.lane-chip {
+  flex-shrink: 0; width: 52px; padding: 6px 4px; border-radius: 8px;
+  background: var(--panel2); border: 1px solid var(--border);
+  text-align: center; font-size: 11px; font-weight: 700;
+}
+.lane-chip .m { color: var(--gold); font-family: 'JetBrains Mono', monospace; }
+.lane-chip.done { border-color: var(--green); background: rgba(34,197,94,0.1); }
+.lane-chip.current { border-color: var(--orange); background: rgba(249,115,22,0.15); }
+.lane-chip.dead { opacity: 0.4; }
+
+/* History */
+.history {
+  padding: 8px 14px 16px; display: flex; gap: 6px; overflow-x: auto;
+  scrollbar-width: none;
+}
+.history::-webkit-scrollbar { display: none; }
+.hist-chip {
+  flex-shrink: 0; padding: 5px 10px; border-radius: 8px;
+  font-size: 11px; font-weight: 600;
+}
+.hist-chip.win { background: rgba(34,197,94,0.15); color: var(--green); }
+.hist-chip.lose { background: rgba(239,68,68,0.15); color: var(--red); }
+
+.toast {
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%) translateY(-20px);
+  background: var(--panel2); border: 1px solid var(--border); padding: 8px 14px;
+  border-radius: 10px; font-size: 12px; font-weight: 600; z-index: 100;
+  opacity: 0; transition: all 0.25s; pointer-events: none; white-space: nowrap;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.win { border-color: var(--green); color: var(--green); }
+.toast.lose { border-color: var(--red); color: var(--red); }
+
+.result-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 80;
+  display: none; align-items: center; justify-content: center; padding: 24px;
+}
+.result-overlay.show { display: flex; }
+.result-card {
+  background: var(--panel); border-radius: 20px; padding: 24px 20px;
+  width: 100%; max-width: 300px; text-align: center;
+  border: 2px solid var(--gold); animation: pop 0.4s cubic-bezier(0.22,1,0.36,1);
+}
+.result-card.lose { border-color: #64748b; }
+@keyframes pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.result-card .ico { font-size: 48px; margin-bottom: 8px; }
+.result-card h2 { font-size: 20px; margin-bottom: 6px; }
+.result-card .amt {
+  font-family: 'Space Grotesk', sans-serif; font-size: 28px; font-weight: 700;
+  margin: 10px 0; color: var(--green);
+}
+.result-card.lose .amt { color: var(--red); }
+.result-card button {
+  margin-top: 12px; width: 100%; padding: 12px; border: none; border-radius: 12px;
+  background: linear-gradient(135deg, #f97316, #f0c14b); color: #1a0a00;
+  font-weight: 700; font-size: 14px; cursor: pointer;
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">🐔 CHICKEN ROAD</div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <button class="sound-btn" id="soundBtn" onclick="toggleSound()">🔊</button>
+    <div class="bal-box">
+      <div class="label">Wallet</div>
+      <div class="val" id="balance">₹0.00</div>
+    </div>
+  </div>
+</div>
+
+<div class="stage" id="stage">
+  <div class="road" id="road"></div>
+  <div class="mult-hud">
+    <div class="val" id="multVal">1.00x</div>
+    <div class="lab" id="multLab">Ready to cross</div>
+  </div>
+  <div class="chicken" id="chicken">🐔</div>
+  <div class="step-info" id="stepInfo">Place bet & start</div>
+</div>
+
+<div class="controls">
+  <div class="lanes-preview" id="lanesPreview"></div>
+  <div class="bet-row">
+    <div class="bet-box">
+      <label>Bet Amount (₹)</label>
+      <input type="number" id="betAmt" value="100" min="10" step="10">
+    </div>
+  </div>
+  <div class="chips">
+    <div class="chip" onclick="setBet(50,this)">₹50</div>
+    <div class="chip active" onclick="setBet(100,this)">₹100</div>
+    <div class="chip" onclick="setBet(250,this)">₹250</div>
+    <div class="chip" onclick="setBet(500,this)">₹500</div>
+    <div class="chip" onclick="setBet(1000,this)">₹1K</div>
+  </div>
+  <div class="action-row">
+    <button class="btn btn-start" id="btnStart" onclick="startGame()">
+      START
+      <small>Place chicken</small>
+    </button>
+    <button class="btn btn-go" id="btnGo" onclick="crossLane()" disabled>
+      GO FORWARD
+      <small id="goHint">—</small>
+    </button>
+  </div>
+  <div style="margin-top:8px">
+    <button class="btn btn-cash" id="btnCash" onclick="cashOut()" disabled style="width:100%">
+      CASH OUT
+      <small id="cashHint">—</small>
+    </button>
+  </div>
+</div>
+
+<div class="history" id="history"></div>
+
+<div class="toast" id="toast"></div>
+
+<div class="result-overlay" id="overlay">
+  <div class="result-card" id="resultCard">
+    <div class="ico" id="resIco">🐔</div>
+    <h2 id="resTitle">Safe!</h2>
+    <div class="amt" id="resAmt">+₹0</div>
+    <div style="font-size:12px;color:var(--muted)" id="resMeta"></div>
+    <button onclick="closeResult()">CONTINUE</button>
+  </div>
+</div>
+
+<script>
+const LANES = 8;
+const MULTS = [1.09, 1.36, 1.82, 2.65, 4.30, 8.20, 16.50, 36.00];
+const RISK = [0.16, 0.20, 0.25, 0.32, 0.40, 0.48, 0.56, 0.65];
+
+let balance = window.OuroBridge ? window.OuroBridge.getBalance() : 0;
+let soundOn = true;
+let phase = 'idle'; // idle | playing | hitting | dead | cashed
+let currentLane = 0;
+let betAmount = 0;
+let currentMult = 1;
+let history = [];
+let audioCtx = null;
+let cars = [];
+let blasts = [];
+
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+function tone(freq, dur, type='sine', vol=0.08, when=0) {
+  if (!soundOn) return;
+  ensureAudio();
+  const t0 = audioCtx.currentTime + when;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + 0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(t0); o.stop(t0 + dur + 0.02);
+}
+function playStep() {
+  tone(320, 0.06, 'square', 0.05);
+  tone(480, 0.05, 'sine', 0.04, 0.05);
+}
+function playHit() {
+  tone(120, 0.2, 'sawtooth', 0.1);
+  tone(80, 0.3, 'triangle', 0.08, 0.1);
+  tone(60, 0.25, 'square', 0.05, 0.2);
+}
+function playCash() {
+  [523, 659, 784, 1046].forEach((f,i) => tone(f, 0.16, 'sine', 0.08, i*0.07));
+}
+function playStart() {
+  tone(400, 0.08, 'square', 0.06);
+  tone(600, 0.1, 'sine', 0.05, 0.08);
+}
+function toggleSound() {
+  soundOn = !soundOn;
+  document.getElementById('soundBtn').textContent = soundOn ? '🔊' : '🔇';
+  if (soundOn) tone(600, 0.07);
+}
+
+function fmt(n) {
+  return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function updateBal() {
+  document.getElementById('balance').textContent = '₹' + fmt(balance);
+}
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (type ? ' ' + type : '');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+function setBet(v, el) {
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  if (el) el.classList.add('active');
+  document.getElementById('betAmt').value = v;
+}
+
+function getLaneGeom() {
+  const stage = document.getElementById('stage');
+  const stageW = stage.clientWidth || 380;
+  const stageH = stage.clientHeight || 340;
+  const pad = 16;
+  const laneW = (stageW - pad * 2) / LANES;
+  return { stage, stageW, stageH, pad, laneW };
+}
+
+function buildRoad() {
+  const road = document.getElementById('road');
+  road.innerHTML = '';
+  const { pad, laneW } = getLaneGeom();
+  for (let i = 1; i < LANES; i++) {
+    const line = document.createElement('div');
+    line.className = 'lane-line';
+    line.style.left = (pad + i * laneW) + 'px';
+    road.appendChild(line);
+  }
+}
+
+function renderLanesPreview() {
+  const box = document.getElementById('lanesPreview');
+  box.innerHTML = MULTS.map((m, i) => {
+    let cls = '';
+    if (phase === 'playing' || phase === 'cashed' || phase === 'hitting') {
+      if (i < currentLane) cls = 'done';
+      else if (i === currentLane) cls = 'current';
+    }
+    return `<div class="lane-chip ${cls}"><div>L${i+1}</div><div class="m">${m >= 10 ? m.toFixed(1) : m.toFixed(2)}x</div></div>`;
+  }).join('');
+}
+
+function startGame() {
+  if (phase === 'playing' || phase === 'hitting') return;
+  const amt = +document.getElementById('betAmt').value;
+  if (!amt || amt < 10) return showToast('Min bet ₹10');
+  if (window.OuroBridge ? !window.OuroBridge.canAfford(amt) : amt > balance) {
+    showToast('Insufficient wallet balance — Top Up', 'lose');
+    if (window.OuroBridge) window.OuroBridge.openTopUp();
+    return;
+  }
+
+  if (window.OuroBridge) {
+    if (!window.OuroBridge.bet(amt, 'Chicken Road Start')) {
+      showToast('Insufficient wallet balance', 'lose');
+      window.OuroBridge.openTopUp();
+      return;
+    }
+    balance = window.OuroBridge.getBalance();
+  } else {
+    balance -= amt;
+  }
+  updateBal();
+  betAmount = amt;
+  currentLane = 0;
+  currentMult = 1;
+  phase = 'playing';
+
+  document.getElementById('chicken').style.left = '8px';
+  document.getElementById('chicken').className = 'chicken';
+  document.getElementById('multVal').textContent = '1.00x';
+  document.getElementById('multLab').textContent = 'Lane 0 · Safe zone';
+  document.getElementById('stepInfo').textContent = 'Tap GO FORWARD to cross next lane';
+  document.getElementById('btnStart').disabled = true;
+  document.getElementById('btnGo').disabled = false;
+  document.getElementById('btnCash').disabled = true;
+  document.getElementById('goHint').textContent = 'Risk ' + Math.round(RISK[0]*100) + '%';
+  document.getElementById('cashHint').textContent = '—';
+
+  clearCars();
+  renderLanesPreview();
+  playStart();
+  showToast('Chicken ready · Good luck!');
+}
+
+function crossLane() {
+  if (phase !== 'playing') return;
+  if (currentLane >= LANES) return;
+
+  const targetLane = currentLane;
+  const risk = RISK[targetLane];
+  const hit = Math.random() < risk;
+
+  playStep();
+
+  const { stageH, pad, laneW } = getLaneGeom();
+  const laneCenterX = pad + (targetLane + 0.5) * laneW;
+  const chickenEl = document.getElementById('chicken');
+  chickenEl.style.left = Math.round(laneCenterX - 18) + 'px';
+
+  if (hit) {
+    // Freeze inputs while chicken steps directly into oncoming impact
+    phase = 'hitting';
+    document.getElementById('btnGo').disabled = true;
+    document.getElementById('btnCash').disabled = true;
+
+    // Launch car timed to reach chicken center (stageH * 0.5 - 20) at 260ms
+    spawnCollisionCar(targetLane, laneCenterX, stageH * 0.5 - 20);
+
+    setTimeout(() => {
+      phase = 'dead';
+      chickenEl.classList.add('hit');
+      spawnBlast(laneCenterX, stageH * 0.5 - 4);
+      document.getElementById('multLab').textContent = 'HIT BY CAR!';
+      document.getElementById('stepInfo').textContent = 'Chicken crashed in lane ' + (targetLane + 1) + '!';
+      playHit();
+      history.unshift({ win: false, mult: 0, amount: betAmount });
+      if (history.length > 12) history.pop();
+      renderHistory();
+      setTimeout(() => showResult(false, 0), 650);
+    }, 260);
+    return;
+  }
+
+  // SAFE: car zooms past cleanly in another lane so it never overlaps the safe chicken
+  const safeCarLane = (targetLane + 2) % LANES;
+  spawnSafeCar(safeCarLane);
+
+  currentLane++;
+  currentMult = MULTS[currentLane - 1];
+  document.getElementById('multVal').textContent = currentMult.toFixed(2) + 'x';
+  document.getElementById('multLab').textContent = 'Lane ' + currentLane + ' · Safe!';
+  document.getElementById('stepInfo').textContent = currentLane >= LANES
+    ? 'Final lane! Cash out now'
+    : 'Safe! Continue or cash out';
+  document.getElementById('btnCash').disabled = false;
+  document.getElementById('cashHint').textContent = '₹' + fmt(betAmount * currentMult);
+  document.getElementById('goHint').textContent = currentLane >= LANES
+    ? 'Max lane'
+    : 'Risk ' + Math.round(RISK[currentLane]*100) + '%';
+
+  if (currentLane >= LANES) {
+    document.getElementById('btnGo').disabled = true;
+  }
+
+  renderLanesPreview();
+  tone(500 + currentLane * 40, 0.08, 'sine', 0.06);
+}
+
+function cashOut() {
+  if (phase !== 'playing' || currentLane === 0) return;
+  phase = 'cashed';
+  const payout = Math.round(betAmount * currentMult * 100) / 100;
+  const profit = Math.round((payout - betAmount) * 100) / 100;
+  if (window.OuroBridge) {
+    window.OuroBridge.win(payout, 'Cashout ' + currentMult.toFixed(2) + 'x · Lane ' + currentLane);
+    balance = window.OuroBridge.getBalance();
+  } else {
+    balance += payout;
+  }
+  updateBal();
+
+  document.getElementById('btnGo').disabled = true;
+  document.getElementById('btnCash').disabled = true;
+  document.getElementById('btnStart').disabled = false;
+
+  playCash();
+  history.unshift({ win: true, mult: currentMult, amount: betAmount, payout });
+  if (history.length > 12) history.pop();
+  renderHistory();
+  showResult(true, profit, currentMult);
+}
+
+function showResult(win, profit, mult) {
+  const card = document.getElementById('resultCard');
+  card.className = 'result-card' + (win ? '' : ' lose');
+  document.getElementById('resIco').textContent = win ? '🐔✨' : '💥🚗';
+  document.getElementById('resTitle').textContent = win ? 'SAFE CROSSING!' : 'HIT BY CAR';
+  document.getElementById('resAmt').textContent = win
+    ? '+₹' + fmt(profit)
+    : '-₹' + fmt(betAmount);
+  document.getElementById('resMeta').textContent = win
+    ? `Cashed at ${mult.toFixed(2)}x · Lane ${currentLane}`
+    : `Hit at lane ${currentLane + 1}`;
+  document.getElementById('overlay').classList.add('show');
+}
+
+function closeResult() {
+  document.getElementById('overlay').classList.remove('show');
+  phase = 'idle';
+  currentLane = 0;
+  currentMult = 1;
+  document.getElementById('chicken').style.left = '8px';
+  document.getElementById('chicken').className = 'chicken';
+  document.getElementById('multVal').textContent = '1.00x';
+  document.getElementById('multLab').textContent = 'Ready to cross';
+  document.getElementById('stepInfo').textContent = 'Place bet & start';
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnGo').disabled = true;
+  document.getElementById('btnCash').disabled = true;
+  document.getElementById('goHint').textContent = '—';
+  document.getElementById('cashHint').textContent = '—';
+  clearCars();
+  renderLanesPreview();
+}
+
+function spawnCollisionCar(laneIdx, laneCenterX, impactY) {
+  const { stage } = getLaneGeom();
+  const car = document.createElement('div');
+  car.className = 'car';
+  car.textContent = Math.random() > 0.5 ? '🚗' : '🚕';
+  car.style.left = Math.round(laneCenterX - 16) + 'px';
+  car.style.top = '-44px';
+  car.style.transition = 'top 0.26s cubic-bezier(0.35, 0, 1, 1)';
+  stage.appendChild(car);
+  cars.push(car);
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      car.style.top = Math.round(impactY) + 'px';
+    });
+  });
+}
+
+function spawnSafeCar(laneIdx) {
+  const { stage, stageH, pad, laneW } = getLaneGeom();
+  const car = document.createElement('div');
+  car.className = 'car';
+  car.textContent = Math.random() > 0.5 ? '🚙' : '🚕';
+  car.style.left = Math.round(pad + (laneIdx + 0.5) * laneW - 16) + 'px';
+  car.style.top = '-44px';
+  car.style.transition = 'top 0.42s linear';
+  stage.appendChild(car);
+  cars.push(car);
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      car.style.top = (stageH + 16) + 'px';
+    });
+  });
+  setTimeout(() => {
+    car.remove();
+    cars = cars.filter(c => c !== car);
+  }, 480);
+}
+
+function spawnBlast(x, y) {
+  const { stage } = getLaneGeom();
+  const b = document.createElement('div');
+  b.className = 'blast-burst';
+  b.textContent = '💥';
+  b.style.left = Math.round(x) + 'px';
+  b.style.top = Math.round(y) + 'px';
+  stage.appendChild(b);
+  blasts.push(b);
+  setTimeout(() => {
+    b.remove();
+    blasts = blasts.filter(el => el !== b);
+  }, 600);
+}
+
+function clearCars() {
+  cars.forEach(c => c.remove());
+  cars = [];
+  blasts.forEach(b => b.remove());
+  blasts = [];
+}
+
+function renderHistory() {
+  document.getElementById('history').innerHTML = history.map(h =>
+    `<div class="hist-chip ${h.win ? 'win' : 'lose'}">${h.win ? h.mult.toFixed(1)+'x' : 'HIT'}</div>`
+  ).join('');
+}
+
+// init
+if (window.OuroBridge) {
+  balance = window.OuroBridge.init({
+    gameId: 'chicken-road',
+    gameTitle: 'Chicken Road',
+    onBalanceChange: (bal) => {
+      balance = bal;
+      updateBal();
+    },
+    onDenied: (msg) => showToast(msg, 'lose'),
+  });
+}
+updateBal();
+buildRoad();
+renderLanesPreview();
+window.addEventListener('resize', buildRoad);
+</script>
+</body>
+</html>

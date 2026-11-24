@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>HiLo · Higher Lower</title>
+<script src="./ouro-wallet-bridge.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#070b12;--panel:#0f1520;--panel2:#161e2c;--border:rgba(255,255,255,0.07);--gold:#f0c14b;--green:#22c55e;--red:#ef4444;--blue:#3b82f6;--text:#e8edf5;--muted:#7d8a9e}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'Poppins',system-ui,sans-serif;background:var(--bg);color:var(--text);max-width:430px;margin:0 auto;min-height:100dvh;display:flex;flex-direction:column;user-select:none;overflow-x:hidden}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--panel);border-bottom:1px solid var(--border)}
+.logo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:17px;background:linear-gradient(90deg,#3b82f6,#22c55e);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.bal-box{text-align:right}.bal-box .label{font-size:9px;color:var(--muted);text-transform:uppercase}
+.bal-box .val{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--gold)}
+.sound-btn{width:34px;height:34px;border-radius:10px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:14px;cursor:pointer}
+
+.stage{margin:12px;background:var(--panel);border-radius:18px;border:1px solid var(--border);padding:20px 16px;text-align:center}
+.cards-row{display:flex;justify-content:center;align-items:center;gap:16px;margin-bottom:16px}
+.card{width:100px;height:140px;border-radius:12px;background:#f8fafc;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,0.4);position:relative}
+.card.back{background:linear-gradient(135deg,#1e3a5f,#0f172a);border:2px solid #334155}
+.card .rank{font-family:'Space Grotesk',sans-serif;font-size:36px;font-weight:700;line-height:1}
+.card .suit{font-size:30px;margin-top:4px}
+.card.red .rank,.card.red .suit{color:#dc2626}
+.card.black .rank,.card.black .suit{color:#0f172a}
+.vs{font-size:14px;color:var(--muted);font-weight:600}
+
+.streak-bar{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(0,0,0,0.25);border-radius:10px;margin-bottom:8px}
+.streak-bar .lab{font-size:12px;color:var(--muted)}
+.streak-bar .val{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;color:var(--gold)}
+
+.controls{padding:12px 14px 16px;background:var(--panel);border-top:1px solid var(--border);margin-top:auto}
+.bet-row{display:flex;gap:10px;margin-bottom:10px}
+.box{flex:1;background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:10px 12px}
+.box label{font-size:10px;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase}
+.box input{width:100%;background:transparent;border:none;outline:none;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700}
+.chips{display:flex;gap:6px;margin-bottom:12px}
+.chip{flex:1;padding:8px 4px;border-radius:8px;background:var(--panel2);border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--muted);text-align:center;cursor:pointer}
+.chip.active{border-color:var(--gold);color:var(--gold)}
+.actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.btn{border:none;border-radius:12px;padding:14px 6px;font-size:14px;font-weight:800;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+.btn:disabled{opacity:0.4;cursor:not-allowed}
+.btn-hi{background:linear-gradient(180deg,#22c55e,#15803d);color:#04120a}
+.btn-lo{background:linear-gradient(180deg,#3b82f6,#1d4ed8);color:#fff}
+.btn-skip{background:var(--panel2);color:var(--muted);border:1px solid var(--border)}
+.btn small{font-size:10px;font-weight:500;opacity:0.85}
+.btn-start{width:100%;border:none;border-radius:14px;padding:15px;font-size:15px;font-weight:800;cursor:pointer;background:linear-gradient(180deg,#f0c14b,#d97706);color:#1a0a00;margin-bottom:8px}
+.btn-cash{width:100%;border:none;border-radius:14px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;background:linear-gradient(180deg,#22c55e,#15803d);color:#04120a}
+.btn-cash:disabled,.btn-start:disabled{opacity:0.4;cursor:not-allowed}
+
+.toast{position:fixed;top:58px;left:50%;transform:translateX(-50%) translateY(-16px);background:var(--panel2);border:1px solid var(--border);padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;z-index:100;opacity:0;transition:all 0.28s;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.win{border-color:#22c55e;color:#4ade80}
+.toast.lose{border-color:#ef4444;color:#f87171}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">HI-LO</div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <button class="sound-btn" id="soundBtn" onclick="toggleSound()">🔊</button>
+    <div class="bal-box"><div class="label">Balance</div><div class="val" id="balance">₹0.00</div></div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="streak-bar">
+    <div><div class="lab">Streak</div><div class="val" id="streakVal">0</div></div>
+    <div style="text-align:right"><div class="lab">Multiplier</div><div class="val" id="multVal">1.00x</div></div>
+  </div>
+  <div class="cards-row">
+    <div class="card black" id="currentCard"><div class="rank">?</div><div class="suit">♠</div></div>
+    <div class="vs">→</div>
+    <div class="card back" id="nextCard"></div>
+  </div>
+  <div style="font-size:12px;color:var(--muted)" id="hint">Start a round</div>
+</div>
+
+<div class="controls">
+  <div class="bet-row">
+    <div class="box"><label>Bet Amount</label><input type="number" id="betAmt" value="100" min="10" step="10"></div>
+  </div>
+  <div class="chips">
+    <div class="chip" onclick="setBet(50,this)">₹50</div>
+    <div class="chip active" onclick="setBet(100,this)">₹100</div>
+    <div class="chip" onclick="setBet(250,this)">₹250</div>
+    <div class="chip" onclick="setBet(500,this)">₹500</div>
+  </div>
+  <button class="btn-start" id="btnStart" onclick="startRound()">START ROUND</button>
+  <div class="actions">
+    <button class="btn btn-hi" id="btnHi" onclick="guess('hi')" disabled>HIGHER<small id="hiOdds">—</small></button>
+    <button class="btn btn-skip" id="btnSkip" onclick="guess('same')" disabled>SAME<small>11.18x</small></button>
+    <button class="btn btn-lo" id="btnLo" onclick="guess('lo')" disabled>LOWER<small id="loOdds">—</small></button>
+  </div>
+  <button class="btn-cash" id="btnCash" onclick="cashOut()" disabled>CASH OUT</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const RANKS=['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+const VALS={A:1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,J:11,Q:12,K:13};
+const SUITS=[{s:'♠',c:'black'},{s:'♥',c:'red'},{s:'♦',c:'red'},{s:'♣',c:'black'}];
+const HILO_RTP=0.86;
+const HOUSE_BIAS_RATE=0.16;
+const MAX_MULT=25;
+const RETAINED_BONUS_CAP=0.15;
+
+let balance=window.OuroBridge?window.OuroBridge.getBalance():0,soundOn=true,phase='idle',streak=0,currentMult=1,betAmount=0,current=null,retainedBonus=0,audioCtx=null;
+
+function ensureAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext);if(audioCtx.state==='suspended')audioCtx.resume()}
+function tone(f,d,t='sine',v=0.08,w=0){if(!soundOn)return;ensureAudio();const t0=audioCtx.currentTime+w;const o=audioCtx.createOscillator();const g=audioCtx.createGain();o.type=t;o.frequency.setValueAtTime(f,t0);g.gain.setValueAtTime(0.0001,t0);g.gain.exponentialRampToValueAtTime(v,t0+0.015);g.gain.exponentialRampToValueAtTime(0.0001,t0+d);o.connect(g);g.connect(audioCtx.destination);o.start(t0);o.stop(t0+d+0.02)}
+function playCard(){tone(280,0.06,'triangle',0.05)}
+function playWin(){tone(520,0.08,'sine',0.07);tone(780,0.1,'sine',0.05,0.06)}
+function playLose(){tone(140,0.15,'sawtooth',0.07);tone(90,0.2,'triangle',0.05,0.1)}
+function playCash(){[523,659,784].forEach((f,i)=>tone(f,0.13,'sine',0.08,i*0.07))}
+function toggleSound(){soundOn=!soundOn;document.getElementById('soundBtn').textContent=soundOn?'🔊':'🔇';if(soundOn)tone(600,0.07)}
+function fmt(n){return n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function updateBal(){document.getElementById('balance').textContent='₹'+fmt(balance)}
+function showToast(msg,type){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(type?' '+type:'');setTimeout(()=>t.classList.remove('show'),2000)}
+function setBet(v,el){document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));if(el)el.classList.add('active');document.getElementById('betAmt').value=v}
+
+function randCard(){return{rank:RANKS[Math.floor(Math.random()*13)],suit:SUITS[Math.floor(Math.random()*4)]}}
+function showCard(el,card,face){
+  if(!face){el.className='card back';el.innerHTML='';return}
+  el.className='card '+card.suit.c;
+  el.innerHTML='<div class="rank">'+card.rank+'</div><div class="suit">'+card.suit.s+'</div>';
+}
+
+function calcOdds(val){
+  const higher=Math.max(0,13-val);
+  const lower=Math.max(0,val-1);
+  const hiMult=higher>0?Math.min(11.18,Math.max(1.03,Math.floor(((13/higher)*HILO_RTP)*100)/100)):0;
+  const loMult=lower>0?Math.min(11.18,Math.max(1.03,Math.floor(((13/lower)*HILO_RTP)*100)/100)):0;
+  const sameMult=Math.min(11.18,Math.floor((13*HILO_RTP)*100)/100);
+  return{hi:hiMult,lo:loMult,same:sameMult};
+}
+
+function startRound(){
+  if(phase==='playing')return;
+  const amt=+document.getElementById('betAmt').value;
+  if(!amt||amt<10)return showToast('Min bet ₹10');
+  if(window.OuroBridge?!window.OuroBridge.canAfford(amt):amt>balance){
+    showToast('Insufficient balance — Top Up','lose');
+    if(window.OuroBridge)window.OuroBridge.openTopUp();
+    return;
+  }
+  if(window.OuroBridge){
+    if(!window.OuroBridge.bet(amt,'Hi-Lo')){window.OuroBridge.openTopUp();return;}
+    balance=window.OuroBridge.getBalance();
+  } else {
+    balance-=amt;
+  }
+  updateBal();
+  betAmount=amt;streak=0;currentMult=1;phase='playing';
+  current=randCard();
+  showCard(document.getElementById('currentCard'),current,true);
+  showCard(document.getElementById('nextCard'),null,false);
+  document.getElementById('streakVal').textContent='0';
+  document.getElementById('multVal').textContent='1.00x';
+  document.getElementById('btnStart').disabled=true;
+  document.getElementById('btnCash').disabled=true;
+  document.getElementById('btnHi').disabled=false;
+  document.getElementById('btnLo').disabled=false;
+  document.getElementById('btnSkip').disabled=false;
+  updateOdds();
+  document.getElementById('hint').textContent=retainedBonus>0?('Higher, Lower or Same? (+'+retainedBonus.toFixed(2)+'x saved)'):'Higher, Lower or Same?';
+  playCard();
+}
+
+function updateOdds(){
+  const v=VALS[current.rank];
+  const o=calcOdds(v);
+  document.getElementById('hiOdds').textContent=o.hi?o.hi.toFixed(2)+'x':'—';
+  document.getElementById('loOdds').textContent=o.lo?o.lo.toFixed(2)+'x':'—';
+}
+
+function guess(dir){
+  if(phase!=='playing')return;
+  const curV=VALS[current.rank];
+  let next=randCard();
+  if(Math.random()<HOUSE_BIAS_RATE){
+    const adverseRank=dir==='hi'?'A':dir==='lo'?'K':(curV===1?'2':'A');
+    next={rank:adverseRank,suit:SUITS[Math.floor(Math.random()*4)]};
+  }
+  showCard(document.getElementById('nextCard'),next,true);
+  playCard();
+
+  const nextV=VALS[next.rank];
+  const odds=calcOdds(curV);
+  let correct=false;
+  let stepOdds=1;
+
+  if(dir==='hi'){
+    correct=nextV>curV;
+    stepOdds=odds.hi||1;
+  } else if(dir==='lo'){
+    correct=nextV<curV;
+    stepOdds=odds.lo||1;
+  } else {
+    correct=nextV===curV;
+    stepOdds=odds.same;
+  }
+
+  setTimeout(()=>{
+    if(correct){
+      streak++;
+      currentMult=Math.min(MAX_MULT,Math.floor(currentMult*stepOdds*100)/100);
+      if(streak===1&&retainedBonus>0){
+        currentMult=Math.min(MAX_MULT,+(currentMult+retainedBonus).toFixed(2));
+        retainedBonus=0;
+      }
+      document.getElementById('streakVal').textContent=streak;
+      document.getElementById('multVal').textContent=currentMult.toFixed(2)+'x';
+      document.getElementById('btnCash').disabled=false;
+      current=next;
+      showCard(document.getElementById('currentCard'),current,true);
+      showCard(document.getElementById('nextCard'),null,false);
+      updateOdds();
+      playWin();
+      document.getElementById('hint').textContent='Correct! Continue or cash out';
+      showToast('Correct · '+currentMult.toFixed(2)+'x','win');
+    } else {
+      retainedBonus=currentMult>1?Math.min(RETAINED_BONUS_CAP,Math.floor((currentMult-1)*0.2*100)/100):0;
+      phase='idle';streak=0;currentMult=1;
+      playLose();
+      document.getElementById('btnStart').disabled=false;
+      document.getElementById('btnHi').disabled=true;
+      document.getElementById('btnLo').disabled=true;
+      document.getElementById('btnSkip').disabled=true;
+      document.getElementById('btnCash').disabled=true;
+      document.getElementById('hint').textContent=retainedBonus>0?('Wrong! Saved +'+retainedBonus.toFixed(2)+'x for next win'):'Wrong! Round over';
+      showToast('Wrong · -₹'+fmt(betAmount),'lose');
+    }
+  },450);
+}
+
+function cashOut(){
+  if(phase!=='playing'||streak===0)return;
+  const payout=Math.round(betAmount*currentMult*100)/100;
+  const profit=payout-betAmount;
+  if(window.OuroBridge&&payout>0){
+    window.OuroBridge.win(payout,'Hi-Lo Cashout');
+    balance=window.OuroBridge.getBalance();
+  } else {
+    balance+=payout;
+  }
+  updateBal();
+  phase='idle';
+  playCash();
+  document.getElementById('btnStart').disabled=false;
+  document.getElementById('btnHi').disabled=true;
+  document.getElementById('btnLo').disabled=true;
+  document.getElementById('btnSkip').disabled=true;
+  document.getElementById('btnCash').disabled=true;
+  document.getElementById('hint').textContent='Cashed out!';
+  showToast('Cashed @ '+currentMult.toFixed(2)+'x · +₹'+fmt(profit),'win');
+}
+
+if(window.OuroBridge){
+  balance=window.OuroBridge.init({
+    gameId:'hilo',
+    gameTitle:'Hi-Lo',
+    onBalanceChange:(bal)=>{balance=bal;updateBal();},
+    onDenied:(msg)=>showToast(msg,'lose'),
+  });
+}
+updateBal();
+</script>
+</body>
+</html>

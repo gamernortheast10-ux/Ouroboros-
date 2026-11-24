@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Dragon Tiger</title>
+<script src="./ouro-wallet-bridge.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0e14; --panel: #121820; --panel2: #1a222e;
+  --border: rgba(255,255,255,0.07); --gold: #f0c14b; --green: #22c55e;
+  --red: #ef4444; --blue: #3b82f6; --text: #e8edf5; --muted: #7d8a9e;
+  --dragon: #ef4444; --tiger: #f59e0b;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body {
+  font-family: 'Poppins', system-ui, sans-serif;
+  background: var(--bg); color: var(--text);
+  max-width: 430px; margin: 0 auto; min-height: 100dvh;
+  display: flex; flex-direction: column; user-select: none; overflow-x: hidden;
+}
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.logo {
+  font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 17px;
+  background: linear-gradient(90deg, #ef4444, #f59e0b);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.bal-box { text-align: right; }
+.bal-box .label { font-size: 9px; color: var(--muted); text-transform: uppercase; }
+.bal-box .val { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; color: var(--gold); }
+.sound-btn {
+  width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--panel2); color: var(--text); font-size: 14px; cursor: pointer;
+}
+
+.table {
+  margin: 12px; background: linear-gradient(180deg, #0f2a1a, #0a1f12);
+  border-radius: 18px; border: 2px solid rgba(34,197,94,0.25);
+  padding: 20px 16px; position: relative; overflow: hidden;
+}
+.table::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 0%, rgba(34,197,94,0.08) 0%, transparent 60%);
+  pointer-events: none;
+}
+.cards-row {
+  display: flex; justify-content: space-around; align-items: center; margin-bottom: 20px;
+}
+.side {
+  text-align: center;
+}
+.side .label {
+  font-size: 13px; font-weight: 700; letter-spacing: 1px; margin-bottom: 10px;
+}
+.side.dragon .label { color: var(--dragon); }
+.side.tiger .label { color: var(--tiger); }
+.card {
+  width: 90px; height: 130px; border-radius: 10px;
+  background: #f8fafc; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  position: relative; overflow: hidden;
+  transition: transform 0.3s;
+}
+.card.back {
+  background: linear-gradient(135deg, #1e3a5f, #0f172a);
+  border: 2px solid #334155;
+}
+.card.back::after {
+  content: '♠'; position: absolute; font-size: 36px; color: rgba(255,255,255,0.15);
+}
+.card .rank {
+  font-family: 'Space Grotesk', sans-serif; font-size: 32px; font-weight: 700;
+  line-height: 1;
+}
+.card .suit { font-size: 28px; margin-top: 4px; }
+.card.red .rank, .card.red .suit { color: #dc2626; }
+.card.black .rank, .card.black .suit { color: #0f172a; }
+.vs {
+  font-family: 'Space Grotesk', sans-serif; font-size: 20px; font-weight: 800;
+  color: var(--muted); opacity: 0.7;
+}
+
+.result-banner {
+  text-align: center; padding: 10px; border-radius: 10px;
+  font-weight: 700; font-size: 15px; margin-top: 8px;
+  background: rgba(0,0,0,0.3); color: var(--muted);
+}
+.result-banner.dragon { background: rgba(239,68,68,0.2); color: #f87171; }
+.result-banner.tiger { background: rgba(245,158,11,0.2); color: #fbbf24; }
+.result-banner.tie { background: rgba(34,197,94,0.2); color: #4ade80; }
+
+.history-strip {
+  display: flex; gap: 6px; padding: 8px 14px; overflow-x: auto; scrollbar-width: none;
+}
+.history-strip::-webkit-scrollbar { display: none; }
+.hist {
+  flex-shrink: 0; width: 28px; height: 28px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800;
+}
+.hist.d { background: rgba(239,68,68,0.25); color: #f87171; }
+.hist.t { background: rgba(245,158,11,0.25); color: #fbbf24; }
+.hist.tie { background: rgba(34,197,94,0.25); color: #4ade80; }
+
+.controls {
+  padding: 12px 14px 16px; background: var(--panel); border-top: 1px solid var(--border); margin-top: auto;
+}
+.bet-row { display: flex; gap: 10px; margin-bottom: 10px; }
+.box {
+  flex: 1; background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 10px 12px;
+}
+.box label { font-size: 10px; color: var(--muted); display: block; margin-bottom: 4px; text-transform: uppercase; }
+.box input {
+  width: 100%; background: transparent; border: none; outline: none;
+  color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 700;
+}
+.chips { display: flex; gap: 6px; margin-bottom: 12px; }
+.chip {
+  flex: 1; padding: 8px 4px; border-radius: 8px; background: var(--panel2);
+  border: 1px solid var(--border); font-size: 12px; font-weight: 600; color: var(--muted);
+  text-align: center; cursor: pointer;
+}
+.chip.active { border-color: var(--gold); color: var(--gold); }
+
+.bet-options { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.bet-opt {
+  border: 2px solid var(--border); border-radius: 12px; padding: 14px 8px;
+  text-align: center; cursor: pointer; background: var(--panel2); transition: all 0.15s;
+}
+.bet-opt.active.dragon { border-color: var(--dragon); background: rgba(239,68,68,0.12); }
+.bet-opt.active.tiger { border-color: var(--tiger); background: rgba(245,158,11,0.12); }
+.bet-opt.active.tie { border-color: var(--green); background: rgba(34,197,94,0.12); }
+.bet-opt .name { font-weight: 700; font-size: 14px; }
+.bet-opt .pay { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.bet-opt.dragon .name { color: var(--dragon); }
+.bet-opt.tiger .name { color: var(--tiger); }
+.bet-opt.tie .name { color: var(--green); }
+
+.btn-deal {
+  width: 100%; border: none; border-radius: 14px; padding: 16px;
+  font-size: 16px; font-weight: 800; cursor: pointer;
+  background: linear-gradient(180deg, #22c55e, #15803d); color: #04120a;
+  box-shadow: 0 4px 18px rgba(34,197,94,0.35);
+  transition: transform 0.12s;
+}
+.btn-deal:active { transform: scale(0.97); }
+.btn-deal:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.toast {
+  position: fixed; top: 58px; left: 50%; transform: translateX(-50%) translateY(-16px);
+  background: var(--panel2); border: 1px solid var(--border); padding: 10px 18px;
+  border-radius: 10px; font-size: 13px; font-weight: 600; z-index: 100;
+  opacity: 0; transition: all 0.28s; pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.win { border-color: #22c55e; color: #4ade80; }
+.toast.lose { border-color: #ef4444; color: #f87171; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">DRAGON TIGER</div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <button class="sound-btn" id="soundBtn" onclick="toggleSound()">🔊</button>
+    <div class="bal-box">
+      <div class="label">Balance</div>
+      <div class="val" id="balance">₹0.00</div>
+    </div>
+  </div>
+</div>
+
+<div class="table">
+  <div class="cards-row">
+    <div class="side dragon">
+      <div class="label">DRAGON</div>
+      <div class="card back" id="dragonCard"></div>
+    </div>
+    <div class="vs">VS</div>
+    <div class="side tiger">
+      <div class="label">TIGER</div>
+      <div class="card back" id="tigerCard"></div>
+    </div>
+  </div>
+  <div class="result-banner" id="resultBanner">Place your bet</div>
+</div>
+
+<div class="history-strip" id="historyStrip"></div>
+
+<div class="controls">
+  <div class="bet-row">
+    <div class="box">
+      <label>Bet Amount</label>
+      <input type="number" id="betAmt" value="100" min="10" step="10">
+    </div>
+  </div>
+  <div class="chips">
+    <div class="chip" onclick="setBet(50,this)">₹50</div>
+    <div class="chip active" onclick="setBet(100,this)">₹100</div>
+    <div class="chip" onclick="setBet(250,this)">₹250</div>
+    <div class="chip" onclick="setBet(500,this)">₹500</div>
+  </div>
+  <div class="bet-options">
+    <div class="bet-opt dragon active" data-side="dragon" onclick="selectSide('dragon',this)">
+      <div class="name">DRAGON</div>
+      <div class="pay">1 : 1</div>
+    </div>
+    <div class="bet-opt tie" data-side="tie" onclick="selectSide('tie',this)">
+      <div class="name">TIE</div>
+      <div class="pay">1 : 8</div>
+    </div>
+    <div class="bet-opt tiger" data-side="tiger" onclick="selectSide('tiger',this)">
+      <div class="name">TIGER</div>
+      <div class="pay">1 : 1</div>
+    </div>
+  </div>
+  <button class="btn-deal" id="btnDeal" onclick="deal()">DEAL</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const RANKS = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+const SUITS = [
+  { s: '♠', c: 'black' },
+  { s: '♥', c: 'red' },
+  { s: '♦', c: 'red' },
+  { s: '♣', c: 'black' }
+];
+const VAL = { A:1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10, J:11, Q:12, K:13 };
+
+let balance = window.OuroBridge ? window.OuroBridge.getBalance() : 0;
+let soundOn = true;
+let selectedSide = 'dragon';
+let history = [];
+let dealing = false;
+let audioCtx = null;
+
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+function tone(f,d,t='sine',v=0.08,w=0) {
+  if (!soundOn) return;
+  ensureAudio();
+  const t0 = audioCtx.currentTime + w;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = t; o.frequency.setValueAtTime(f, t0);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(v, t0+0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0+d);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(t0); o.stop(t0+d+0.02);
+}
+function playDeal() { tone(180,0.08,'triangle',0.05); tone(220,0.06,'triangle',0.04,0.08); }
+function playWin() { [523,659,784,1046].forEach((f,i)=>tone(f,0.14,'sine',0.08,i*0.07)); }
+function playLose() { tone(180,0.15,'sawtooth',0.06); tone(120,0.2,'triangle',0.05,0.12); }
+function toggleSound() {
+  soundOn = !soundOn;
+  document.getElementById('soundBtn').textContent = soundOn ? '🔊' : '🔇';
+  if (soundOn) tone(600,0.07);
+}
+
+function fmt(n) { return n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function updateBal() { document.getElementById('balance').textContent = '₹'+fmt(balance); }
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast show'+(type?' '+type:'');
+  setTimeout(()=>t.classList.remove('show'), 2200);
+}
+function setBet(v,el) {
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+  if(el) el.classList.add('active');
+  document.getElementById('betAmt').value = v;
+}
+function selectSide(side, el) {
+  selectedSide = side;
+  document.querySelectorAll('.bet-opt').forEach(o => o.classList.remove('active'));
+  el.classList.add('active');
+}
+
+function randomCard() {
+  return {
+    rank: RANKS[Math.floor(Math.random()*13)],
+    suit: SUITS[Math.floor(Math.random()*4)]
+  };
+}
+
+function renderCard(el, card, faceUp) {
+  if (!faceUp) {
+    el.className = 'card back';
+    el.innerHTML = '';
+    return;
+  }
+  el.className = 'card ' + card.suit.c;
+  el.innerHTML = '<div class="rank">'+card.rank+'</div><div class="suit">'+card.suit.s+'</div>';
+}
+
+function deal() {
+  if (dealing) return;
+  const amt = +document.getElementById('betAmt').value;
+  if (!amt || amt < 10) return showToast('Min bet ₹10');
+  if (window.OuroBridge ? !window.OuroBridge.canAfford(amt) : amt > balance) {
+    showToast('Insufficient balance — Top Up', 'lose');
+    if (window.OuroBridge) window.OuroBridge.openTopUp();
+    return;
+  }
+
+  if (window.OuroBridge) {
+    if (!window.OuroBridge.bet(amt, 'Dragon Tiger (' + selectedSide.toUpperCase() + ')')) {
+      window.OuroBridge.openTopUp();
+      return;
+    }
+    balance = window.OuroBridge.getBalance();
+  } else {
+    balance -= amt;
+  }
+  updateBal();
+  dealing = true;
+  document.getElementById('btnDeal').disabled = true;
+
+  // reset cards
+  renderCard(document.getElementById('dragonCard'), null, false);
+  renderCard(document.getElementById('tigerCard'), null, false);
+  document.getElementById('resultBanner').className = 'result-banner';
+  document.getElementById('resultBanner').textContent = 'Dealing...';
+
+  playDeal();
+
+  const dragon = randomCard();
+  const tiger = randomCard();
+
+  setTimeout(() => {
+    renderCard(document.getElementById('dragonCard'), dragon, true);
+    tone(300,0.06,'sine',0.05);
+  }, 400);
+
+  setTimeout(() => {
+    renderCard(document.getElementById('tigerCard'), tiger, true);
+    tone(340,0.06,'sine',0.05);
+
+    // resolve
+    const dVal = VAL[dragon.rank];
+    const tVal = VAL[tiger.rank];
+    let result;
+    if (dVal > tVal) result = 'dragon';
+    else if (tVal > dVal) result = 'tiger';
+    else result = 'tie';
+
+    const banner = document.getElementById('resultBanner');
+    banner.className = 'result-banner ' + result;
+    banner.textContent = result === 'tie' ? 'TIE' : result.toUpperCase() + ' WINS';
+
+    // payout
+    let win = false;
+    let payout = 0;
+    if (selectedSide === result) {
+      win = true;
+      if (result === 'tie') payout = amt * 9; // 1:8 + stake
+      else payout = amt * 2; // 1:1 + stake
+      payout = Math.round(payout * 100) / 100;
+      if (window.OuroBridge && payout > 0) {
+        window.OuroBridge.win(payout, 'Dragon Tiger Win (' + result.toUpperCase() + ')');
+        balance = window.OuroBridge.getBalance();
+      } else {
+        balance += payout;
+      }
+      updateBal();
+      playWin();
+      showToast((result==='tie'?'TIE ':'')+'Won +₹'+fmt(payout - amt), 'win');
+    } else {
+      playLose();
+      showToast('Lost -₹'+fmt(amt), 'lose');
+    }
+
+    history.unshift(result);
+    if (history.length > 20) history.pop();
+    renderHistory();
+
+    setTimeout(() => {
+      dealing = false;
+      document.getElementById('btnDeal').disabled = false;
+    }, 800);
+  }, 900);
+}
+
+function renderHistory() {
+  document.getElementById('historyStrip').innerHTML = history.map(r => {
+    const cls = r === 'dragon' ? 'd' : r === 'tiger' ? 't' : 'tie';
+    const txt = r === 'dragon' ? 'D' : r === 'tiger' ? 'T' : '=';
+    return '<div class="hist '+cls+'">'+txt+'</div>';
+  }).join('');
+}
+
+if (window.OuroBridge) {
+  balance = window.OuroBridge.init({
+    gameId: 'dragon-tiger',
+    gameTitle: 'Dragon Tiger',
+    onBalanceChange: (bal) => { balance = bal; updateBal(); },
+    onDenied: (msg) => showToast(msg, 'lose'),
+  });
+}
+updateBal();
+</script>
+</body>
+</html>

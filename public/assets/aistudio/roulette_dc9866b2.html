@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Roulette</title>
+<script src="./ouro-wallet-bridge.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0e14;--panel:#121820;--panel2:#1a222e;--border:rgba(255,255,255,0.07);--gold:#f0c14b;--green:#22c55e;--red:#ef4444;--text:#e8edf5;--muted:#7d8a9e}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'Poppins',system-ui,sans-serif;background:var(--bg);color:var(--text);max-width:430px;margin:0 auto;min-height:100dvh;display:flex;flex-direction:column;user-select:none;overflow-x:hidden}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--panel);border-bottom:1px solid var(--border)}
+.logo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:17px;background:linear-gradient(90deg,#ef4444,#22c55e);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.bal-box{text-align:right}.bal-box .label{font-size:9px;color:var(--muted);text-transform:uppercase}
+.bal-box .val{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--gold)}
+.sound-btn{width:34px;height:34px;border-radius:10px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:14px;cursor:pointer}
+
+.wheel-area{position:relative;margin:12px auto;width:260px;height:260px}
+.wheel{width:100%;height:100%;border-radius:50%;position:relative;transition:transform 4.5s cubic-bezier(0.12,0.8,0.2,1);box-shadow:0 0 0 6px #1e293b,0 0 0 10px #f0c14b,0 10px 30px rgba(0,0,0,0.5);overflow:hidden;background:#111}
+.wheel canvas{width:100%;height:100%}
+.ball-track{position:absolute;inset:18px;border-radius:50%;pointer-events:none}
+.ball{position:absolute;width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 0 6px #fff;top:0;left:50%;margin-left:-6px;transition:none}
+.pointer{position:absolute;top:-4px;left:50%;transform:translateX(-50%);z-index:10;width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;border-top:20px solid #f0c14b;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.4))}
+.result-num{text-align:center;font-family:'Space Grotesk',sans-serif;font-size:28px;font-weight:700;margin:6px 0;min-height:34px}
+
+.board{padding:8px 12px;display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.num-btn{padding:10px 4px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;text-align:center;cursor:pointer;color:var(--text)}
+.num-btn.red{background:rgba(239,68,68,0.2);border-color:rgba(239,68,68,0.4)}
+.num-btn.black{background:rgba(30,41,59,0.8);border-color:rgba(100,116,139,0.4)}
+.num-btn.green{background:rgba(34,197,94,0.2);border-color:rgba(34,197,94,0.4)}
+.num-btn.selected{outline:2px solid var(--gold);outline-offset:1px}
+.outside{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:0 12px 8px}
+.out-btn{padding:12px 4px;border-radius:10px;border:1px solid var(--border);background:var(--panel2);font-size:12px;font-weight:700;text-align:center;cursor:pointer}
+.out-btn.selected{outline:2px solid var(--gold)}
+
+.controls{padding:10px 14px 16px;background:var(--panel);border-top:1px solid var(--border);margin-top:auto}
+.bet-row{display:flex;gap:10px;margin-bottom:10px}
+.box{flex:1;background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:10px 12px}
+.box label{font-size:10px;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase}
+.box input{width:100%;background:transparent;border:none;outline:none;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700}
+.chips{display:flex;gap:6px;margin-bottom:10px}
+.chip{flex:1;padding:7px 4px;border-radius:8px;background:var(--panel2);border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--muted);text-align:center;cursor:pointer}
+.chip.active{border-color:var(--gold);color:var(--gold)}
+.btn-spin{width:100%;border:none;border-radius:14px;padding:15px;font-size:16px;font-weight:800;cursor:pointer;background:linear-gradient(180deg,#ef4444,#b91c1c);color:#fff;box-shadow:0 4px 18px rgba(239,68,68,0.35)}
+.btn-spin:disabled{opacity:0.45;cursor:not-allowed}
+.bet-info{text-align:center;font-size:12px;color:var(--muted);margin-top:6px}
+
+.toast{position:fixed;top:58px;left:50%;transform:translateX(-50%) translateY(-16px);background:var(--panel2);border:1px solid var(--border);padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;z-index:100;opacity:0;transition:all 0.28s;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.win{border-color:#22c55e;color:#4ade80}
+.toast.lose{border-color:#ef4444;color:#f87171}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">ROULETTE</div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <button class="sound-btn" id="soundBtn" onclick="toggleSound()">🔊</button>
+    <div class="bal-box"><div class="label">Balance</div><div class="val" id="balance">₹0.00</div></div>
+  </div>
+</div>
+
+<div class="wheel-area">
+  <div class="pointer"></div>
+  <div class="wheel" id="wheel"><canvas id="cv" width="260" height="260"></canvas></div>
+</div>
+<div class="result-num" id="resultNum">—</div>
+
+<div class="outside">
+  <div class="out-btn" data-bet="red" onclick="toggleBet('red',this)">RED · 1:1</div>
+  <div class="out-btn" data-bet="black" onclick="toggleBet('black',this)">BLACK · 1:1</div>
+  <div class="out-btn" data-bet="odd" onclick="toggleBet('odd',this)">ODD · 1:1</div>
+  <div class="out-btn" data-bet="even" onclick="toggleBet('even',this)">EVEN · 1:1</div>
+  <div class="out-btn" data-bet="low" onclick="toggleBet('low',this)">1-18 · 1:1</div>
+  <div class="out-btn" data-bet="high" onclick="toggleBet('high',this)">19-36 · 1:1</div>
+</div>
+
+<div class="board" id="board"></div>
+
+<div class="controls">
+  <div class="bet-row">
+    <div class="box"><label>Bet Amount</label><input type="number" id="betAmt" value="50" min="10" step="10"></div>
+  </div>
+  <div class="chips">
+    <div class="chip" onclick="setBet(20,this)">₹20</div>
+    <div class="chip active" onclick="setBet(50,this)">₹50</div>
+    <div class="chip" onclick="setBet(100,this)">₹100</div>
+    <div class="chip" onclick="setBet(250,this)">₹250</div>
+  </div>
+  <button class="btn-spin" id="btnSpin" onclick="spin()">SPIN</button>
+  <div class="bet-info" id="betInfo">Select numbers or outside bets</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const REDS=new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
+const NUMS=Array.from({length:37},(_,i)=>i); // 0-36
+let balance=window.OuroBridge?window.OuroBridge.getBalance():0,soundOn=true,spinning=false,rotation=0,selected=new Set(),outside={},audioCtx=null;
+
+function ensureAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext);if(audioCtx.state==='suspended')audioCtx.resume()}
+function tone(f,d,t='sine',v=0.08,w=0){if(!soundOn)return;ensureAudio();const t0=audioCtx.currentTime+w;const o=audioCtx.createOscillator();const g=audioCtx.createGain();o.type=t;o.frequency.setValueAtTime(f,t0);g.gain.setValueAtTime(0.0001,t0);g.gain.exponentialRampToValueAtTime(v,t0+0.015);g.gain.exponentialRampToValueAtTime(0.0001,t0+d);o.connect(g);g.connect(audioCtx.destination);o.start(t0);o.stop(t0+d+0.02)}
+function playSpin(){for(let i=0;i<18;i++)tone(180+i*12,0.05,'square',0.02,i*0.09)}
+function playWin(){[523,659,784,1046].forEach((f,i)=>tone(f,0.14,'sine',0.08,i*0.07))}
+function playLose(){tone(160,0.12,'triangle',0.05);tone(110,0.18,'triangle',0.04,0.1)}
+function toggleSound(){soundOn=!soundOn;document.getElementById('soundBtn').textContent=soundOn?'🔊':'🔇';if(soundOn)tone(600,0.07)}
+function fmt(n){return n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function updateBal(){document.getElementById('balance').textContent='₹'+fmt(balance)}
+function showToast(msg,type){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(type?' '+type:'');setTimeout(()=>t.classList.remove('show'),2200)}
+function setBet(v,el){document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));if(el)el.classList.add('active');document.getElementById('betAmt').value=v}
+
+function colorOf(n){if(n===0)return'green';return REDS.has(n)?'red':'black'}
+
+function drawWheel(){
+  const cv=document.getElementById('cv');
+  const ctx=cv.getContext('2d');
+  const cx=130,cy=130,r=128;
+  const arc=(Math.PI*2)/37;
+  // European order
+  const order=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
+  order.forEach((n,i)=>{
+    const start=i*arc-Math.PI/2;
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,start,start+arc);ctx.closePath();
+    ctx.fillStyle=n===0?'#15803d':(REDS.has(n)?'#b91c1c':'#1e293b');
+    ctx.fill();
+    ctx.save();ctx.translate(cx,cy);ctx.rotate(start+arc/2);ctx.textAlign='right';
+    ctx.fillStyle='#fff';ctx.font='bold 10px sans-serif';ctx.fillText(n,r-8,3);ctx.restore();
+  });
+  window._order=order;
+}
+
+function buildBoard(){
+  const board=document.getElementById('board');
+  let html='<div class="num-btn green" data-n="0" onclick="toggleNum(0,this)">0</div>';
+  for(let n=1;n<=36;n++){
+    html+='<div class="num-btn '+colorOf(n)+'" data-n="'+n+'" onclick="toggleNum('+n+',this)">'+n+'</div>';
+  }
+  board.innerHTML=html;
+}
+
+function toggleNum(n,el){
+  if(spinning)return;
+  if(selected.has(n)){selected.delete(n);el.classList.remove('selected')}
+  else{selected.add(n);el.classList.add('selected')}
+  updateBetInfo();
+}
+function toggleBet(type,el){
+  if(spinning)return;
+  if(outside[type]){delete outside[type];el.classList.remove('selected')}
+  else{outside[type]=true;el.classList.add('selected')}
+  updateBetInfo();
+}
+function updateBetInfo(){
+  const parts=[];
+  if(selected.size)parts.push(selected.size+' number(s)');
+  Object.keys(outside).forEach(k=>parts.push(k.toUpperCase()));
+  document.getElementById('betInfo').textContent=parts.length?parts.join(' · '):'Select numbers or outside bets';
+}
+
+function spin(){
+  if(spinning)return;
+  if(selected.size===0 && Object.keys(outside).length===0)return showToast('Select a bet first');
+  const amt=+document.getElementById('betAmt').value;
+  if(!amt||amt<10)return showToast('Min bet ₹10');
+  const totalBets=selected.size+Object.keys(outside).length;
+  const cost=amt*totalBets;
+  if(window.OuroBridge?!window.OuroBridge.canAfford(cost):cost>balance){
+    showToast('Insufficient balance — Top Up','lose');
+    if(window.OuroBridge)window.OuroBridge.openTopUp();
+    return;
+  }
+  if(window.OuroBridge){
+    if(!window.OuroBridge.bet(cost,'Roulette Spin')){window.OuroBridge.openTopUp();return;}
+    balance=window.OuroBridge.getBalance();
+  } else {
+    balance-=cost;
+  }
+  updateBal();spinning=true;
+  document.getElementById('btnSpin').disabled=true;
+  document.getElementById('resultNum').textContent='...';
+
+  playSpin();
+  const result=Math.floor(Math.random()*37);
+  const order=window._order;
+  const idx=order.indexOf(result);
+  const arc=360/37;
+  const target=360*6+(360-idx*arc-arc/2);
+  rotation+=target;
+  document.getElementById('wheel').style.transform='rotate('+rotation+'deg)';
+
+  setTimeout(()=>{
+    const col=colorOf(result);
+    document.getElementById('resultNum').textContent=result+' · '+col.toUpperCase();
+    document.getElementById('resultNum').style.color=col==='red'?'#f87171':col==='green'?'#4ade80':'#e2e8f0';
+
+    let win=0;
+    // straight numbers 35:1
+    if(selected.has(result)) win+=amt*36;
+    // outside
+    if(outside.red && col==='red') win+=amt*2;
+    if(outside.black && col==='black') win+=amt*2;
+    if(outside.odd && result>0 && result%2===1) win+=amt*2;
+    if(outside.even && result>0 && result%2===0) win+=amt*2;
+    if(outside.low && result>=1 && result<=18) win+=amt*2;
+    if(outside.high && result>=19 && result<=36) win+=amt*2;
+
+    win=Math.round(win*100)/100;
+    if(win>0){
+      if(window.OuroBridge){
+        window.OuroBridge.win(win,'Roulette Payout (#'+result+')');
+        balance=window.OuroBridge.getBalance();
+      } else {
+        balance+=win;
+      }
+      updateBal();playWin();
+      showToast('Win +₹'+fmt(win-cost),'win');
+    } else {
+      playLose();showToast('No win · -₹'+fmt(cost),'lose');
+    }
+    spinning=false;
+    document.getElementById('btnSpin').disabled=false;
+  },4700);
+}
+
+if(window.OuroBridge){
+  balance=window.OuroBridge.init({
+    gameId:'roulette',
+    gameTitle:'Roulette',
+    onBalanceChange:(bal)=>{balance=bal;updateBal();},
+    onDenied:(msg)=>showToast(msg,'lose'),
+  });
+}
+drawWheel();buildBoard();updateBal();
+</script>
+</body>
+</html>

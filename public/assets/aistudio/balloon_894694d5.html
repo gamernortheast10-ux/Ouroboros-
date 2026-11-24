@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Balloon Pop</title>
+<script src="./ouro-wallet-bridge.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0612;--panel:#120c1c;--panel2:#1c1428;--border:rgba(255,255,255,0.07);--gold:#f0c14b;--green:#22c55e;--red:#ef4444;--text:#e8edf5;--muted:#9a8ab0}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'Poppins',system-ui,sans-serif;background:var(--bg);color:var(--text);max-width:430px;margin:0 auto;min-height:100dvh;display:flex;flex-direction:column;user-select:none;overflow-x:hidden}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--panel);border-bottom:1px solid var(--border)}
+.logo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:17px;background:linear-gradient(90deg,#f472b6,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.bal-box{text-align:right}.bal-box .label{font-size:9px;color:var(--muted);text-transform:uppercase}
+.bal-box .val{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--gold)}
+.sound-btn{width:34px;height:34px;border-radius:10px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:14px;cursor:pointer}
+
+.stage{margin:12px;background:linear-gradient(180deg,#1a0f2e,#0f0a1a);border-radius:18px;border:1px solid var(--border);padding:24px 16px;text-align:center;min-height:280px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.balloon{
+  width:100px;height:120px;border-radius:50% 50% 50% 50% / 60% 60% 40% 40%;
+  background:radial-gradient(circle at 30% 30%,#f9a8d4,#ec4899 60%,#be185d);
+  position:relative;transition:transform 0.15s,width 0.15s,height 0.15s;
+  box-shadow:inset -8px -12px 20px rgba(0,0,0,0.2),0 8px 24px rgba(236,72,153,0.3);
+}
+.balloon::after{content:'';position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);width:3px;height:20px;background:#64748b;border-radius:2px}
+.balloon.pop{animation:pop 0.4s ease forwards}
+@keyframes pop{0%{transform:scale(1);opacity:1}50%{transform:scale(1.4);opacity:0.8}100%{transform:scale(0.1);opacity:0}}
+.mult-big{font-family:'Space Grotesk',sans-serif;font-size:42px;font-weight:700;color:var(--gold);margin-top:20px;text-shadow:0 0 30px rgba(240,193,75,0.4)}
+.hint{font-size:13px;color:var(--muted);margin-top:6px}
+
+.controls{padding:12px 14px 16px;background:var(--panel);border-top:1px solid var(--border);margin-top:auto}
+.bet-row{display:flex;gap:10px;margin-bottom:10px}
+.box{flex:1;background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:10px 12px}
+.box label{font-size:10px;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase}
+.box input{width:100%;background:transparent;border:none;outline:none;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700}
+.chips{display:flex;gap:6px;margin-bottom:12px}
+.chip{flex:1;padding:8px 4px;border-radius:8px;background:var(--panel2);border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--muted);text-align:center;cursor:pointer}
+.chip.active{border-color:var(--gold);color:var(--gold)}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn{border:none;border-radius:14px;padding:16px 8px;font-size:15px;font-weight:800;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+.btn:disabled{opacity:0.4;cursor:not-allowed}
+.btn-pump{background:linear-gradient(180deg,#f472b6,#db2777);color:#fff;box-shadow:0 4px 16px rgba(244,114,182,0.35)}
+.btn-cash{background:linear-gradient(180deg,#22c55e,#15803d);color:#04120a;box-shadow:0 4px 16px rgba(34,197,94,0.35)}
+.btn small{font-size:10px;font-weight:500;opacity:0.85}
+
+.toast{position:fixed;top:58px;left:50%;transform:translateX(-50%) translateY(-16px);background:var(--panel2);border:1px solid var(--border);padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;z-index:100;opacity:0;transition:all 0.28s;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.win{border-color:#22c55e;color:#4ade80}
+.toast.lose{border-color:#ef4444;color:#f87171}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">BALLOON</div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <button class="sound-btn" id="soundBtn" onclick="toggleSound()">🔊</button>
+    <div class="bal-box"><div class="label">Balance</div><div class="val" id="balance">₹0.00</div></div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="balloon" id="balloon"></div>
+  <div class="mult-big" id="multBig">1.00x</div>
+  <div class="hint" id="hint">Pump to grow · Cash out before it pops!</div>
+</div>
+
+<div class="controls">
+  <div class="bet-row">
+    <div class="box"><label>Bet Amount</label><input type="number" id="betAmt" value="100" min="10" step="10"></div>
+  </div>
+  <div class="chips">
+    <div class="chip" onclick="setBet(50,this)">₹50</div>
+    <div class="chip active" onclick="setBet(100,this)">₹100</div>
+    <div class="chip" onclick="setBet(250,this)">₹250</div>
+    <div class="chip" onclick="setBet(500,this)">₹500</div>
+  </div>
+  <div class="actions">
+    <button class="btn btn-pump" id="btnPump" onclick="pump()">PUMP<small id="pumpHint">Start</small></button>
+    <button class="btn btn-cash" id="btnCash" onclick="cashOut()" disabled>CASH OUT<small id="cashHint">—</small></button>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let balance=window.OuroBridge?window.OuroBridge.getBalance():0,soundOn=true,phase='idle',pumps=0,currentMult=1,betAmount=0,audioCtx=null;
+const BASE_SIZE=100;
+function getPopChance(p){return Math.min(0.85,0.16+(p-1)*0.05);}
+function calcBalloonMult(p){
+  if(p<=0)return 1;
+  let cumSurv=1;
+  for(let i=1;i<=p;i++)cumSurv*=(1-getPopChance(i));
+  return Math.max(1.08,Math.floor((0.92/cumSurv)*100)/100);
+}
+
+function ensureAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext);if(audioCtx.state==='suspended')audioCtx.resume()}
+function tone(f,d,t='sine',v=0.08,w=0){if(!soundOn)return;ensureAudio();const t0=audioCtx.currentTime+w;const o=audioCtx.createOscillator();const g=audioCtx.createGain();o.type=t;o.frequency.setValueAtTime(f,t0);g.gain.setValueAtTime(0.0001,t0);g.gain.exponentialRampToValueAtTime(v,t0+0.015);g.gain.exponentialRampToValueAtTime(0.0001,t0+d);o.connect(g);g.connect(audioCtx.destination);o.start(t0);o.stop(t0+d+0.02)}
+function playPump(){tone(200+pumps*30,0.06,'sine',0.05)}
+function playPop(){tone(80,0.15,'sawtooth',0.1);tone(40,0.25,'triangle',0.06,0.08)}
+function playCash(){[523,659,784].forEach((f,i)=>tone(f,0.13,'sine',0.08,i*0.07))}
+function toggleSound(){soundOn=!soundOn;document.getElementById('soundBtn').textContent=soundOn?'🔊':'🔇';if(soundOn)tone(600,0.07)}
+function fmt(n){return n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function updateBal(){document.getElementById('balance').textContent='₹'+fmt(balance)}
+function showToast(msg,type){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(type?' '+type:'');setTimeout(()=>t.classList.remove('show'),2000)}
+function setBet(v,el){document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));if(el)el.classList.add('active');document.getElementById('betAmt').value=v}
+
+function pump(){
+  if(phase==='dead')return;
+  if(phase==='idle'){
+    const amt=+document.getElementById('betAmt').value;
+    if(!amt||amt<10)return showToast('Min bet ₹10');
+    if(window.OuroBridge?!window.OuroBridge.canAfford(amt):amt>balance){
+      showToast('Insufficient balance — Top Up','lose');
+      if(window.OuroBridge)window.OuroBridge.openTopUp();
+      return;
+    }
+    if(window.OuroBridge){
+      if(!window.OuroBridge.bet(amt,'Balloon Pop')){window.OuroBridge.openTopUp();return;}
+      balance=window.OuroBridge.getBalance();
+    } else {
+      balance-=amt;
+    }
+    updateBal();
+    betAmount=amt;pumps=0;currentMult=1;
+    phase='playing';
+    document.getElementById('btnCash').disabled=true;
+    document.getElementById('pumpHint').textContent='Pop risk 16%';
+    document.getElementById('balloon').classList.remove('pop');
+    document.getElementById('balloon').style.width=BASE_SIZE+'px';
+    document.getElementById('balloon').style.height=(BASE_SIZE*1.2)+'px';
+  }
+
+  pumps++;
+  // Progressive pop chance starting at Pump 1 (16% -> +5%/pump, cap 85%)
+  if(Math.random()<getPopChance(pumps)){
+    // POP
+    phase='dead';
+    document.getElementById('balloon').classList.add('pop');
+    document.getElementById('multBig').textContent='POP!';
+    document.getElementById('multBig').style.color='#f87171';
+    document.getElementById('hint').textContent='Balloon burst at pump '+pumps+' · You lost';
+    document.getElementById('btnPump').disabled=true;
+    document.getElementById('btnCash').disabled=true;
+    playPop();
+    showToast('POP! -₹'+fmt(betAmount),'lose');
+    setTimeout(()=>{
+      phase='idle';
+      document.getElementById('btnPump').disabled=false;
+      document.getElementById('pumpHint').textContent='Start';
+      document.getElementById('multBig').textContent='1.00x';
+      document.getElementById('multBig').style.color='';
+      document.getElementById('hint').textContent='Pump to grow · Cash out before it pops!';
+      document.getElementById('balloon').classList.remove('pop');
+      document.getElementById('balloon').style.width=BASE_SIZE+'px';
+      document.getElementById('balloon').style.height=(BASE_SIZE*1.2)+'px';
+    },1200);
+    return;
+  }
+
+  currentMult=calcBalloonMult(pumps);
+  const scale=1+Math.min(1.4,pumps*0.08);
+  document.getElementById('balloon').style.width=(BASE_SIZE*scale)+'px';
+  document.getElementById('balloon').style.height=(BASE_SIZE*1.2*scale)+'px';
+  document.getElementById('multBig').textContent=currentMult.toFixed(2)+'x';
+  document.getElementById('pumpHint').textContent='Next pop '+Math.round(getPopChance(pumps+1)*100)+'%';
+  document.getElementById('btnCash').disabled=false;
+  document.getElementById('cashHint').textContent='₹'+fmt(betAmount*currentMult);
+  playPump();
+}
+
+function cashOut(){
+  if(phase!=='playing'||pumps===0)return;
+  const payout=Math.round(betAmount*currentMult*100)/100;
+  const profit=payout-betAmount;
+  if(window.OuroBridge&&payout>0){
+    window.OuroBridge.win(payout,'Balloon Pop Cashout');
+    balance=window.OuroBridge.getBalance();
+  } else {
+    balance+=payout;
+  }
+  updateBal();
+  phase='idle';
+  playCash();
+  document.getElementById('btnCash').disabled=true;
+  document.getElementById('pumpHint').textContent='Start';
+  document.getElementById('cashHint').textContent='—';
+  document.getElementById('hint').textContent='Nice save!';
+  showToast('Cashed @ '+currentMult.toFixed(2)+'x · +₹'+fmt(profit),'win');
+  setTimeout(()=>{
+    document.getElementById('multBig').textContent='1.00x';
+    document.getElementById('hint').textContent='Pump to grow · Cash out before it pops!';
+    document.getElementById('balloon').style.width=BASE_SIZE+'px';
+    document.getElementById('balloon').style.height=(BASE_SIZE*1.2)+'px';
+  },800);
+}
+
+if(window.OuroBridge){
+  balance=window.OuroBridge.init({
+    gameId:'balloon',
+    gameTitle:'Balloon Pop',
+    onBalanceChange:(bal)=>{balance=bal;updateBal();},
+    onDenied:(msg)=>showToast(msg,'lose'),
+  });
+}
+updateBal();
+</script>
+</body>
+</html>

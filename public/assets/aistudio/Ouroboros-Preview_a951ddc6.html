@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Ouroboros — Global Marketplace</title>
+<style>
+:root {
+  --bg: #0b0b12;
+  --bg2: #12121c;
+  --card: #161622;
+  --card2: #1c1c2a;
+  --border: rgba(255,255,255,0.08);
+  --text: #f4f4f8;
+  --text2: #a0a0b8;
+  --purple: #7c5cfc;
+  --purple2: #9b7dff;
+  --green: #22c55e;
+  --red: #ef4444;
+  --radius: 18px;
+  --nav-h: 74px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+.app {
+  max-width: 480px;
+  margin: 0 auto;
+  min-height: 100vh;
+  position: relative;
+  background: var(--bg);
+}
+@media (min-width: 900px) {
+  .app { max-width: 1100px; display: grid; grid-template-columns: 250px 1fr; }
+  .sidebar { display: flex !important; }
+  .bottom-nav { display: none !important; }
+  .fab { right: calc(50% - 530px) !important; }
+  .main { padding-bottom: 40px; }
+}
+
+/* Logo */
+.logo-svg { width: 34px; height: 34px; flex-shrink: 0; }
+.logo-full { display: flex; align-items: center; gap: 10px; }
+.logo-text {
+  font-weight: 800; font-size: 1.2rem; letter-spacing: -0.6px;
+  background: linear-gradient(135deg, #b794ff, #7c5cfc);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Sidebar */
+.sidebar {
+  display: none; flex-direction: column;
+  background: var(--bg2); border-right: 1px solid var(--border);
+  padding: 28px 18px; position: sticky; top: 0; height: 100vh;
+}
+.sidebar .nav-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 16px; border-radius: 14px;
+  color: var(--text2); font-weight: 500; cursor: pointer;
+  transition: all 0.22s; margin-bottom: 4px; font-size: 0.95rem;
+}
+.sidebar .nav-item:hover, .sidebar .nav-item.active {
+  background: rgba(124,92,252,0.15); color: var(--purple2);
+}
+.sidebar .nav-item.active { font-weight: 600; }
+
+.main { padding-bottom: calc(var(--nav-h) + 20px); }
+
+/* Top bar */
+.top-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px 10px;
+  background: linear-gradient(180deg, rgba(124,92,252,0.16) 0%, transparent 100%);
+  position: sticky; top: 0; z-index: 40;
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+}
+.balance-chip {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid var(--border);
+  border-radius: 999px; padding: 7px 14px;
+  font-weight: 600; font-size: 0.92rem;
+  display: flex; align-items: center; gap: 5px;
+}
+.balance-chip span { color: var(--purple2); }
+
+/* Tabs */
+.tabs {
+  display: flex; gap: 8px; padding: 4px 16px 14px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  flex-shrink: 0; padding: 8px 16px; border-radius: 999px;
+  font-size: 0.82rem; font-weight: 600;
+  background: var(--card); color: var(--text2);
+  border: 1px solid var(--border); cursor: pointer; transition: all 0.22s;
+}
+.tab.active {
+  background: linear-gradient(135deg, var(--purple), #5b3fd9);
+  color: #fff; border-color: transparent;
+  box-shadow: 0 4px 16px rgba(124,92,252,0.4);
+}
+
+/* Cards */
+.card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px;
+  margin: 0 16px 14px; transition: transform 0.18s;
+}
+.card:active { transform: scale(0.985); }
+
+/* Asset row */
+.asset-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 0; border-bottom: 1px solid var(--border);
+}
+.asset-row:last-child { border-bottom: none; }
+.asset-logo {
+  width: 42px; height: 42px; border-radius: 12px;
+  background: #fff; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; flex-shrink: 0; font-weight: 800;
+}
+.asset-info { flex: 1; min-width: 0; }
+.asset-name { font-weight: 700; font-size: 0.93rem; }
+.asset-sub { font-size: 0.72rem; color: var(--text2); margin-top: 2px; }
+.asset-price { text-align: right; margin-right: 8px; }
+.price { font-weight: 700; font-size: 0.93rem; }
+.change { font-size: 0.75rem; font-weight: 600; margin-top: 2px; }
+.change.up { color: var(--green); }
+.change.down { color: var(--red); }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 13px 20px; border-radius: 14px;
+  font-weight: 700; font-size: 0.92rem;
+  border: none; cursor: pointer; position: relative; overflow: hidden;
+  transition: all 0.22s; user-select: none;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--purple), #5b3fd9);
+  color: #fff; box-shadow: 0 6px 20px rgba(124,92,252,0.35);
+}
+.btn-green {
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  color: #fff; box-shadow: 0 6px 18px rgba(34,197,94,0.28);
+}
+.btn-red {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  color: #fff; box-shadow: 0 6px 18px rgba(239,68,68,0.28);
+}
+.btn-outline {
+  background: transparent; border: 1.5px solid var(--border); color: var(--text);
+}
+.btn-sm { padding: 8px 14px; font-size: 0.82rem; border-radius: 11px; }
+.btn-ghost { background: var(--card2); color: var(--text); border: none; }
+
+/* FAB */
+.fab {
+  position: fixed;
+  bottom: calc(var(--nav-h) + 16px);
+  right: 18px;
+  width: 56px; height: 56px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--purple), #5b3fd9);
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8px 28px rgba(124,92,252,0.5);
+  z-index: 55; cursor: pointer;
+  transition: transform 0.28s cubic-bezier(0.34,1.56,0.64,1);
+}
+.fab:active { transform: scale(0.94); }
+
+/* Bottom Nav */
+.bottom-nav {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: var(--nav-h);
+  background: rgba(18,18,28,0.95);
+  backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+  border-top: 1px solid var(--border);
+  display: flex; justify-content: space-around; align-items: center;
+  z-index: 60; max-width: 480px; margin: 0 auto;
+}
+.nav-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  color: var(--text2); font-size: 0.68rem; font-weight: 500;
+  cursor: pointer; padding: 6px 10px; border-radius: 12px;
+  transition: all 0.22s; min-width: 56px;
+}
+.nav-btn.active { color: var(--purple2); }
+.nav-btn svg { width: 23px; height: 23px; transition: transform 0.25s; }
+.nav-btn.active svg { transform: scale(1.12); }
+
+/* Animations */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes flashGreen {
+  0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.65); }
+  70% { box-shadow: 0 0 0 16px rgba(34,197,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
+@keyframes flashRed {
+  0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.65); }
+  70% { box-shadow: 0 0 0 16px rgba(239,68,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+}
+.animate-in { animation: slideUp 0.45s cubic-bezier(0.16,1,0.3,1) both; }
+.flash-success { animation: flashGreen 0.55s; }
+.flash-error { animation: flashRed 0.55s; }
+
+/* Chart */
+.mini-chart {
+  height: 78px; border-radius: 12px; position: relative; overflow: hidden;
+  background: linear-gradient(180deg, rgba(124,92,252,0.07), transparent);
+}
+.chart-line {
+  stroke: var(--purple2); stroke-width: 2.4; fill: none; stroke-linecap: round;
+  filter: drop-shadow(0 0 5px rgba(124,92,252,0.55));
+}
+
+/* Pool */
+.pool-bar {
+  height: 7px; border-radius: 4px; background: var(--red);
+  overflow: hidden; display: flex;
+}
+.pool-buy {
+  background: var(--green); height: 100%;
+  transition: width 0.7s cubic-bezier(0.16,1,0.3,1);
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.72);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  z-index: 100;
+  display: flex; align-items: flex-end; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity 0.28s;
+}
+.modal-overlay.open { opacity: 1; pointer-events: auto; }
+.modal {
+  background: var(--bg2);
+  border-radius: 24px 24px 0 0;
+  width: 100%; max-width: 480px;
+  padding: 18px 18px 36px;
+  transform: translateY(110%);
+  transition: transform 0.38s cubic-bezier(0.16,1,0.3,1);
+  max-height: 90vh; overflow-y: auto;
+}
+.modal-overlay.open .modal { transform: translateY(0); }
+.modal-handle {
+  width: 40px; height: 4px; background: rgba(255,255,255,0.18);
+  border-radius: 2px; margin: 0 auto 18px;
+}
+
+/* News */
+.news-card { border-left: 3px solid var(--purple); padding-left: 14px; }
+.tag {
+  display: inline-block; font-size: 0.68rem; font-weight: 700;
+  padding: 3px 8px; border-radius: 6px;
+  background: rgba(124,92,252,0.18); color: var(--purple2);
+}
+.tag.bull { background: rgba(34,197,94,0.14); color: var(--green); }
+.tag.neu { background: rgba(160,160,184,0.15); color: var(--text2); }
+
+/* Toast */
+.toast {
+  position: fixed; top: 22px; left: 50%;
+  transform: translateX(-50%) translateY(-90px);
+  background: var(--card2); border: 1px solid var(--border);
+  padding: 11px 18px; border-radius: 14px;
+  font-weight: 600; font-size: 0.9rem; z-index: 200;
+  transition: transform 0.38s cubic-bezier(0.34,1.56,0.64,1);
+  white-space: nowrap;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.success { border-color: var(--green); }
+.toast.error { border-color: var(--red); }
+
+/* Pages */
+.page { display: none; }
+.page.active { display: block; animation: slideUp 0.38s ease; }
+
+.profile-avatar {
+  width: 74px; height: 74px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--purple), #5b3fd9);
+  margin: 0 auto 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.9rem; font-weight: 800;
+}
+.wallet-grid {
+  display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; text-align: center;
+}
+.wallet-item {
+  background: var(--card2); border-radius: 12px; padding: 12px 4px;
+  cursor: pointer; font-size: 0.78rem; font-weight: 500;
+}
+.setting-row {
+  padding: 13px 0; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+  cursor: pointer; font-size: 0.92rem;
+}
+.setting-row:last-child { border-bottom: none; }
+.setting-row span:last-child { color: var(--text2); font-size: 0.85rem; }
+.pred-card {
+  background: var(--card2); border-radius: 14px; padding: 14px; margin-bottom: 12px;
+}
+
+/* Brand logos pure CSS/SVG */
+.logo-apple { font-size: 1.4rem; color: #111; }
+.logo-samsung { background: #1428a0; color: #fff; font-size: 0.6rem; font-weight: 800; letter-spacing: -0.5px; }
+.logo-xiaomi { background: #ff6900; color: #fff; font-size: 1.05rem; font-weight: 800; }
+.logo-oneplus { background: #f50514; color: #fff; font-size: 1.15rem; font-weight: 800; }
+.logo-pixel { background: #4285f4; color: #fff; font-size: 0.9rem; font-weight: 700; }
+.logo-nothing { background: #111; color: #fff; font-size: 0.55rem; font-weight: 700; letter-spacing: 0.5px; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- SIDEBAR Desktop -->
+  <aside class="sidebar">
+    <div class="logo-full" style="margin-bottom:36px;padding:0 6px;">
+      <svg class="logo-svg" viewBox="0 0 64 64" fill="none">
+        <defs><linearGradient id="sg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#b794ff"/><stop offset="100%" stop-color="#7c5cfc"/></linearGradient></defs>
+        <circle cx="32" cy="32" r="29" stroke="url(#sg)" stroke-width="3" fill="none"/>
+        <path d="M32 13C23 13 15 21 15 30C15 39 23 47 32 47C39 47 45 41 45 34C45 28 41 25 36 25C32 25 29 28 29 32C29 35 31.5 37 34 37" stroke="url(#sg)" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+        <circle cx="34" cy="37" r="3" fill="url(#sg)"/>
+      </svg>
+      <span class="logo-text">Ouroboros</span>
+    </div>
+    <div class="nav-item active" data-page="home">Markets</div>
+    <div class="nav-item" data-page="portfolio">Portfolio</div>
+    <div class="nav-item" data-page="feed">AI News</div>
+    <div class="nav-item" data-page="profile">Profile</div>
+  </aside>
+
+  <div class="main">
+
+    <!-- HOME -->
+    <section class="page active" id="page-home">
+      <header class="top-bar">
+        <div class="logo-full">
+          <svg class="logo-svg" viewBox="0 0 64 64" fill="none">
+            <defs><linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#b794ff"/><stop offset="100%" stop-color="#7c5cfc"/></linearGradient></defs>
+            <circle cx="32" cy="32" r="29" stroke="url(#lg)" stroke-width="3" fill="none"/>
+            <path d="M32 13C23 13 15 21 15 30C15 39 23 47 32 47C39 47 45 41 45 34C45 28 41 25 36 25C32 25 29 28 29 32C29 35 31.5 37 34 37" stroke="url(#lg)" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+            <circle cx="34" cy="37" r="3" fill="url(#lg)"/>
+          </svg>
+          <span class="logo-text">Ouroboros</span>
+        </div>
+        <div class="balance-chip">₹ <span>4,285.00</span></div>
+      </header>
+
+      <div class="tabs">
+        <div class="tab active">All Markets</div>
+        <div class="tab">Mobile Brands</div>
+        <div class="tab">Famous Games</div>
+        <div class="tab">Crypto</div>
+        <div class="tab">Sports</div>
+        <div class="tab">Political</div>
+      </div>
+
+      <!-- Featured -->
+      <div class="card animate-in">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+          <div class="asset-logo"><span class="logo-apple"></span></div>
+          <div>
+            <div class="asset-name">APPLE · Mobile Brand</div>
+            <div class="asset-sub">Apple iPhone Ecosystem</div>
+          </div>
+          <div style="margin-left:auto;text-align:right;">
+            <div class="price">267.92</div>
+            <div class="change up">+0.66%</div>
+          </div>
+        </div>
+
+        <div class="mini-chart">
+          <svg width="100%" height="78" viewBox="0 0 320 78" preserveAspectRatio="none">
+            <path class="chart-line" d="M0,52 C35,50 55,56 85,48 C115,40 135,46 165,38 C195,30 225,36 255,26 C285,16 305,20 320,14"/>
+            <path d="M0,52 C35,50 55,56 85,48 C115,40 135,46 165,38 C195,30 225,36 255,26 C285,16 305,20 320,14 L320,78 L0,78 Z" fill="url(#cg)" opacity="0.22"/>
+            <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#9b7dff"/><stop offset="100%" stop-color="transparent"/></linearGradient></defs>
+          </svg>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;margin:12px 0 6px;font-size:0.78rem;color:var(--text2);">
+          <span>Buy / Long <b style="color:var(--green)">₹1,611 (52%)</b></span>
+          <span>Sell / Short <b style="color:var(--red)">₹1,471 (48%)</b></span>
+        </div>
+        <div class="pool-bar"><div class="pool-buy" style="width:52%"></div></div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px;">
+          <button class="btn btn-green" onclick="openTrade('APPLE',267.92)">↗ Buy / Long</button>
+          <button class="btn btn-red" onclick="openTrade('APPLE',267.92)">↘ Sell / Short</button>
+        </div>
+      </div>
+
+      <!-- Live list -->
+      <div class="card animate-in" style="animation-delay:0.08s">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <h3 style="font-size:0.98rem;font-weight:700;">Live Asset Trades</h3>
+          <span style="font-size:0.72rem;color:var(--text2);">24/7 Continuous</span>
+        </div>
+
+        <div class="asset-row">
+          <div class="asset-logo"><span class="logo-apple"></span></div>
+          <div class="asset-info"><div class="asset-name">APPLE</div><div class="asset-sub">Mobile Brand</div></div>
+          <div class="asset-price"><div class="price">267.53</div><div class="change up">+0.83%</div></div>
+          <button class="btn btn-sm btn-primary" onclick="openTrade('APPLE',267.53)">Trade</button>
+        </div>
+        <div class="asset-row">
+          <div class="asset-logo logo-samsung">SAM</div>
+          <div class="asset-info"><div class="asset-name">SAMSUNG</div><div class="asset-sub">Galaxy Index</div></div>
+          <div class="asset-price"><div class="price">61.66</div><div class="change down">-1.52%</div></div>
+          <button class="btn btn-sm btn-primary" onclick="openTrade('SAMSUNG',61.66)">Trade</button>
+        </div>
+        <div class="asset-row">
+          <div class="asset-logo logo-xiaomi">mi</div>
+          <div class="asset-info"><div class="asset-name">XIAOMI</div><div class="asset-sub">HyperOS Mobility</div></div>
+          <div class="asset-price"><div class="price">33.53</div><div class="change up">+0.24%</div></div>
+          <button class="btn btn-sm btn-primary" onclick="openTrade('XIAOMI',33.53)">Trade</button>
+        </div>
+        <div class="asset-row">
+          <div class="asset-logo logo-oneplus">1+</div>
+          <div class="asset-info"><div class="asset-name">ONEPLUS</div><div class="asset-sub">Flagship Tech</div></div>
+          <div class="asset-price"><div class="price">47.62</div><div class="change up">+1.71%</div></div>
+          <button class="btn btn-sm btn-primary" onclick="openTrade('ONEPLUS',47.62)">Trade</button>
+        </div>
+        <div class="asset-row">
+          <div class="asset-logo logo-pixel">G</div>
+          <div class="asset-info"><div class="asset-name">PIXEL</div><div class="asset-sub">Google Tensor</div></div>
+          <div class="asset-price"><div class="price">182.06</div><div class="change up">+1.11%</div></div>
+          <button class="btn btn-sm btn-primary" onclick="openTrade('PIXEL',182.06)">Trade</button>
+        </div>
+        <div class="asset-row">
+          <div class="asset-logo logo-nothing">NOTHING</div>
+          <div class="asset-info"><div class="asset-name">NOTHING</div><div class="asset-sub">Hardware Index</div></div>
+          <div class="asset-price"><div class="price">26.18</div><div class="change up">+0.73%</div></div>
+          <button class="btn btn-sm btn-primary" onclick="openTrade('NOTHING',26.18)">Trade</button>
+        </div>
+      </div>
+
+      <!-- Prediction -->
+      <div class="card animate-in" style="animation-delay:0.12s">
+        <h3 style="font-size:0.98rem;font-weight:700;margin-bottom:14px;">Prediction Bets Marketplace</h3>
+
+        <div class="pred-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="tag">FAMOUS GAMES</span>
+            <span style="font-size:0.72rem;color:var(--text2);">03:54 left</span>
+          </div>
+          <div style="font-weight:600;font-size:0.92rem;margin-bottom:10px;line-height:1.35;">Will GTA VI surpass 25M Week-1 global unit sales across consoles?</div>
+          <div style="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:5px;">
+            <span>YES 68% · 2,410 bettors</span><span>NO 32% · 1,180</span>
+          </div>
+          <div class="pool-bar" style="margin-bottom:12px;"><div class="pool-buy" style="width:68%"></div></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <button class="btn btn-sm btn-green" onclick="showToast('YES bet placed','success')">Bet Yes</button>
+            <button class="btn btn-sm btn-red" onclick="showToast('NO bet placed','error')">Bet No</button>
+          </div>
+        </div>
+
+        <div class="pred-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="tag">ESPORTS</span>
+            <span style="font-size:0.72rem;color:var(--text2);">Today 18:30 IST</span>
+          </div>
+          <div style="font-weight:600;font-size:0.92rem;margin-bottom:10px;line-height:1.35;">Valorant Masters: Paper Rex wins Map 1 cleanly (2-0)?</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <button class="btn btn-sm btn-green" onclick="showToast('YES bet placed','success')">Bet Yes</button>
+            <button class="btn btn-sm btn-red" onclick="showToast('NO bet placed','error')">Bet No</button>
+          </div>
+        </div>
+
+        <div class="pred-card" style="margin-bottom:0;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="tag">FAMOUS GAMES</span>
+            <span style="font-size:0.72rem;color:var(--text2);">Tomorrow 20:00</span>
+          </div>
+          <div style="font-weight:600;font-size:0.92rem;margin-bottom:10px;line-height:1.35;">BGMI India Pro League: Team GodLike finishes Top 2?</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <button class="btn btn-sm btn-green" onclick="showToast('YES bet placed','success')">Bet Yes</button>
+            <button class="btn btn-sm btn-red" onclick="showToast('NO bet placed','error')">Bet No</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PORTFOLIO -->
+    <section class="page" id="page-portfolio">
+      <header class="top-bar">
+        <div class="logo-full">
+          <svg class="logo-svg" viewBox="0 0 64 64" fill="none">
+            <circle cx="32" cy="32" r="29" stroke="url(#lg)" stroke-width="3" fill="none"/>
+            <path d="M32 13C23 13 15 21 15 30C15 39 23 47 32 47C39 47 45 41 45 34C45 28 41 25 36 25C32 25 29 28 29 32C29 35 31.5 37 34 37" stroke="url(#lg)" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+            <circle cx="34" cy="37" r="3" fill="url(#lg)"/>
+          </svg>
+          <span class="logo-text">Portfolio</span>
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="switchPage('home')">+ New Trade</button>
+      </header>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 16px 14px;">
+        <div class="card" style="margin:0;text-align:center;padding:16px 10px;">
+          <div style="font-size:0.72rem;color:var(--text2);">Total Portfolio Value</div>
+          <div style="font-size:1.35rem;font-weight:800;margin-top:4px;">₹4,285.00</div>
+        </div>
+        <div class="card" style="margin:0;text-align:center;padding:16px 10px;">
+          <div style="font-size:0.72rem;color:var(--text2);">Realized P&L</div>
+          <div style="font-size:1.35rem;font-weight:800;margin-top:4px;color:var(--red);">-₹700.00</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="text-align:center;padding:36px 12px;color:var(--text2);">
+          <div style="font-size:2.4rem;margin-bottom:10px;opacity:0.35;">◎</div>
+          <div style="font-weight:600;margin-bottom:6px;color:var(--text);">No active market allocations</div>
+          <div style="font-size:0.84rem;line-height:1.4;">Open a Long-Time or Short-Time position to see live portfolio analytics.</div>
+          <button class="btn btn-primary" style="margin-top:18px;" onclick="switchPage('home')">Explore Markets</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- FEED -->
+    <section class="page" id="page-feed">
+      <header class="top-bar">
+        <div class="logo-full">
+          <svg class="logo-svg" viewBox="0 0 64 64" fill="none">
+            <circle cx="32" cy="32" r="29" stroke="url(#lg)" stroke-width="3" fill="none"/>
+            <path d="M32 13C23 13 15 21 15 30C15 39 23 47 32 47C39 47 45 41 45 34C45 28 41 25 36 25C32 25 29 28 29 32C29 35 31.5 37 34 37" stroke="url(#lg)" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+            <circle cx="34" cy="37" r="3" fill="url(#lg)"/>
+          </svg>
+          <span class="logo-text">AI News</span>
+        </div>
+        <span style="font-size:0.78rem;color:var(--text2);background:rgba(255,255,255,0.06);padding:5px 10px;border-radius:999px;">2/2 posts left</span>
+      </header>
+
+      <div class="card news-card animate-in">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span class="tag bull">BULLISH</span>
+          <span style="font-size:0.72rem;color:var(--text2);">APPLE · 2026-11-20</span>
+        </div>
+        <div style="font-weight:700;margin-bottom:6px;line-height:1.35;">Apple India Manufacturing Output Scales Ahead of Festive Quarter</div>
+        <div style="font-size:0.84rem;color:var(--text2);line-height:1.45;">Foxconn and Tata Electronics supply checks indicate higher iPhone assembly allocations for South Asia.</div>
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button class="btn btn-sm btn-outline" onclick="openTrade('APPLE',267.9)">Trade APPLE</button>
+          <button class="btn btn-sm btn-ghost">Discuss</button>
+        </div>
+      </div>
+
+      <div class="card news-card animate-in" style="animation-delay:0.07s">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span class="tag bull">BULLISH</span>
+          <span style="font-size:0.72rem;color:var(--text2);">GTAVI · 2026-11-20</span>
+        </div>
+        <div style="font-weight:700;margin-bottom:6px;line-height:1.35;">GTA VI Pre-Order Demand Indicators Surpass Analyst Projections</div>
+        <div style="font-size:0.84rem;color:var(--text2);line-height:1.45;">Console hardware bundle tracking shows strong advance wishlist momentum.</div>
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button class="btn btn-sm btn-outline">Trade GTAVI</button>
+          <button class="btn btn-sm btn-ghost">Discuss</button>
+        </div>
+      </div>
+
+      <div class="card news-card animate-in" style="animation-delay:0.12s">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span class="tag bull">BULLISH</span>
+          <span style="font-size:0.72rem;color:var(--text2);">ETH · 2026-11-20</span>
+        </div>
+        <div style="font-weight:700;margin-bottom:6px;line-height:1.35;">Ethereum Layer-2 Settlement Volume Hits New Weekly High</div>
+        <div style="font-size:0.84rem;color:var(--text2);line-height:1.45;">Rollup fee compression has accelerated institutional DeFi liquidity inflows.</div>
+      </div>
+
+      <div class="card news-card animate-in" style="animation-delay:0.16s">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span class="tag neu">NEUTRAL</span>
+          <span style="font-size:0.72rem;color:var(--text2);">POLICY_IN · 2026-11-20</span>
+        </div>
+        <div style="font-weight:700;margin-bottom:6px;line-height:1.35;">Bond Yields Ease as Cooling Core Inflation Sparks Policy Cut Debate</div>
+        <div style="font-size:0.84rem;color:var(--text2);line-height:1.45;">Fixed-income desks are pricing higher odds of an accommodative stance.</div>
+      </div>
+    </section>
+
+    <!-- PROFILE -->
+    <section class="page" id="page-profile">
+      <header class="top-bar">
+        <div class="logo-full">
+          <svg class="logo-svg" viewBox="0 0 64 64" fill="none">
+            <circle cx="32" cy="32" r="29" stroke="url(#lg)" stroke-width="3" fill="none"/>
+            <path d="M32 13C23 13 15 21 15 30C15 39 23 47 32 47C39 47 45 41 45 34C45 28 41 25 36 25C32 25 29 28 29 32C29 35 31.5 37 34 37" stroke="url(#lg)" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+            <circle cx="34" cy="37" r="3" fill="url(#lg)"/>
+          </svg>
+          <span class="logo-text">Profile</span>
+        </div>
+        <span style="font-size:0.75rem;background:rgba(34,197,94,0.14);color:var(--green);padding:4px 11px;border-radius:999px;font-weight:600;">Verified</span>
+      </header>
+
+      <div class="card" style="text-align:center;padding:26px 16px;">
+        <div class="profile-avatar">A</div>
+        <div style="font-weight:700;font-size:1.12rem;">Aarav Sharma</div>
+        <div style="font-size:0.82rem;color:var(--text2);margin-top:3px;">aarav@velotrade.in · usr-trader-aarav</div>
+        <div style="font-size:1.55rem;font-weight:800;margin-top:14px;">₹4,285</div>
+        <button class="btn btn-primary btn-sm" style="margin-top:12px;" onclick="showToast('Top-up flow opened','success')">+ Top up</button>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:12px;font-size:0.95rem;">Wallet</div>
+        <div class="wallet-grid">
+          <div class="wallet-item" onclick="showToast('Selling History')">Selling H</div>
+          <div class="wallet-item" onclick="showToast('Deposit History')">Deposit H</div>
+          <div class="wallet-item" onclick="showToast('History')">History</div>
+          <div class="wallet-item" onclick="showToast('Sell')">Sell</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="setting-row"><span>Edit profile</span><span>›</span></div>
+        <div class="setting-row"><span>2-Step auth & AES-256 Vault</span><span style="color:var(--green);">Enabled</span></div>
+        <div class="setting-row"><span>Portfolio base currency</span><span>INR ›</span></div>
+        <div class="setting-row"><span>Price alerts</span><span>›</span></div>
+        <div class="setting-row"><span>Get Android APK</span><span style="color:var(--purple2);">APK</span></div>
+      </div>
+
+      <div class="card" style="text-align:center;">
+        <button class="btn btn-outline" style="width:100%;color:var(--red);border-color:rgba(239,68,68,0.3);" onclick="showToast('Logged out','error')">Log out</button>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- FAB -->
+  <div class="fab" onclick="openTrade('APPLE',267.9)">
+    <svg width="24" height="24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+  </div>
+
+  <!-- Bottom Nav -->
+  <nav class="bottom-nav">
+    <div class="nav-btn active" data-page="home">
+      <svg fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg>
+      Home
+    </div>
+    <div class="nav-btn" data-page="home">
+      <svg fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Markets
+    </div>
+    <div class="nav-btn" data-page="portfolio">
+      <svg fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+      Portfolio
+    </div>
+    <div class="nav-btn" data-page="feed">
+      <svg fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      Feed
+    </div>
+    <div class="nav-btn" data-page="profile">
+      <svg fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+      Me
+    </div>
+  </nav>
+</div>
+
+<!-- TRADE MODAL -->
+<div class="modal-overlay" id="tradeModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+      <div class="asset-logo" id="modalLogo" style="width:46px;height:46px;"></div>
+      <div>
+        <div style="font-weight:700;font-size:1.08rem;" id="modalName">APPLE</div>
+        <div style="color:var(--text2);font-size:0.84rem;" id="modalPrice">267.92</div>
+      </div>
+      <button style="margin-left:auto;background:none;border:none;color:var(--text2);font-size:1.5rem;cursor:pointer;line-height:1;" onclick="closeTrade()">×</button>
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <div style="font-size:0.78rem;color:var(--text2);margin-bottom:8px;">Select Time Horizon</div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;" id="timeHorizon">
+        <button class="btn btn-sm btn-primary" data-t="30s">30s</button>
+        <button class="btn btn-sm btn-outline" data-t="1m">1m</button>
+        <button class="btn btn-sm btn-outline" data-t="5m">5m</button>
+        <button class="btn btn-sm btn-outline" data-t="1h">1h</button>
+        <button class="btn btn-sm btn-outline" data-t="24h">24h</button>
+        <button class="btn btn-sm btn-outline" data-t="7d">7d</button>
+      </div>
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <div style="font-size:0.78rem;color:var(--text2);margin-bottom:8px;">Investment Stake (INR)</div>
+      <input type="number" id="stakeInput" value="500" min="50" style="width:100%;padding:13px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:1.08rem;font-weight:600;">
+      <div style="display:flex;gap:7px;margin-top:8px;">
+        <button class="btn btn-sm btn-outline" onclick="setStake(100)">₹100</button>
+        <button class="btn btn-sm btn-outline" onclick="setStake(500)">₹500</button>
+        <button class="btn btn-sm btn-outline" onclick="setStake(1000)">₹1000</button>
+        <button class="btn btn-sm btn-outline" onclick="setStake(5000)">₹5000</button>
+      </div>
+    </div>
+
+    <div style="background:var(--card);border-radius:12px;padding:12px;font-size:0.84rem;margin-bottom:18px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span>Platform Commission (2.0%)</span><span id="fee">₹10.00</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span>Account Handling Fee</span><span>₹5.00</span></div>
+      <div style="display:flex;justify-content:space-between;font-weight:700;"><span>Total Wallet Debit</span><span id="totalDebit">₹515.00</span></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px;">
+      <button class="btn btn-green" id="btnLong" onclick="confirmTrade('long')">↗ Buy / Long</button>
+      <button class="btn btn-red" id="btnShort" onclick="confirmTrade('short')">↘ Sell / Short</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function switchPage(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  document.querySelectorAll('.nav-btn, .sidebar .nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('[data-page="'+page+'"]').forEach(n => n.classList.add('active'));
+  window.scrollTo(0,0);
+}
+
+document.querySelectorAll('[data-page]').forEach(el => {
+  el.addEventListener('click', function() { switchPage(this.getAttribute('data-page')); });
+});
+
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', function() {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    this.classList.add('active');
+  });
+});
+
+document.getElementById('timeHorizon').addEventListener('click', function(e) {
+  if (e.target.getAttribute('data-t')) {
+    document.querySelectorAll('#timeHorizon .btn').forEach(b => {
+      b.classList.remove('btn-primary'); b.classList.add('btn-outline');
+    });
+    e.target.classList.remove('btn-outline');
+    e.target.classList.add('btn-primary');
+  }
+});
+
+function setStake(v) {
+  document.getElementById('stakeInput').value = v;
+  updateFees();
+}
+function updateFees() {
+  var s = +document.getElementById('stakeInput').value || 0;
+  var fee = (s * 0.02).toFixed(2);
+  document.getElementById('fee').textContent = '₹' + fee;
+  document.getElementById('totalDebit').textContent = '₹' + (s + +fee + 5).toFixed(2);
+}
+document.getElementById('stakeInput').addEventListener('input', updateFees);
+
+function openTrade(name, price) {
+  document.getElementById('modalName').textContent = name;
+  document.getElementById('modalPrice').textContent = price;
+  var logo = document.getElementById('modalLogo');
+  logo.className = 'asset-logo';
+  logo.innerHTML = '';
+  if (name === 'APPLE') { logo.innerHTML = '<span class="logo-apple"></span>'; }
+  else if (name === 'SAMSUNG') { logo.className += ' logo-samsung'; logo.textContent = 'SAM'; }
+  else if (name === 'XIAOMI') { logo.className += ' logo-xiaomi'; logo.textContent = 'mi'; }
+  else if (name === 'ONEPLUS') { logo.className += ' logo-oneplus'; logo.textContent = '1+'; }
+  else if (name === 'PIXEL') { logo.className += ' logo-pixel'; logo.textContent = 'G'; }
+  else if (name === 'NOTHING') { logo.className += ' logo-nothing'; logo.textContent = 'NOTHING'; }
+  else { logo.textContent = name[0]; }
+  document.getElementById('tradeModal').classList.add('open');
+}
+function closeTrade() {
+  document.getElementById('tradeModal').classList.remove('open');
+}
+function confirmTrade(side) {
+  var btn = side === 'long' ? document.getElementById('btnLong') : document.getElementById('btnShort');
+  btn.classList.add(side === 'long' ? 'flash-success' : 'flash-error');
+  setTimeout(function() {
+    btn.classList.remove('flash-success','flash-error');
+    closeTrade();
+    showToast(side === 'long' ? 'Long position opened ✓' : 'Short position opened ✓', side === 'long' ? 'success' : 'error');
+  }, 520);
+}
+
+function showToast(msg, type) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (type || '');
+  setTimeout(function() { t.classList.remove('show'); }, 2400);
+}
+
+document.getElementById('tradeModal').addEventListener('click', function(e) {
+  if (e.target === this) closeTrade();
+});
+</script>
+</body>
+</html>

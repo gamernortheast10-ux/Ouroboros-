@@ -1,0 +1,2376 @@
+import {
+  ADMIN_OWNER_EMAIL,
+  DEFAULT_MERCHANT_UPIS,
+  DEFAULT_PLATFORM_SETTINGS,
+  DEFAULT_REFERRAL_CONFIG,
+  VALID_GIFT_CODES,
+} from '../data/seedData';
+import {
+  ActiveBet,
+  ActivePosition,
+  AppState,
+  BaseCurrency,
+  CommissionLedgerEntry,
+  FxRatesMap,
+  MarketAsset,
+  MerchantUpiConfig,
+  P2PMatchKind,
+  P2PTradeStatus,
+  PendingTransferAnimation,
+  PlatformSettings,
+  PlayerLevelDefinition,
+  PlayerLevelInfo,
+  PredictionMarket,
+  ReferralConfig,
+  RegisteredAccount,
+  SettledPositionSummary,
+  TimeHorizon,
+  TradeSide,
+  WalletTransaction,
+} from '../types/trading';
+
+export const PLATFORM_COMMISSION_RATE = 0.02;
+export const HANDLING_FEE_INR = 5;
+export const MIN_TRADE_STAKE_INR = 50;
+export const MIN_BET_STAKE_INR = 20;
+export const MIN_TOPUP_INR = 100;
+export const MAX_TOPUP_INR = 100000;
+export const MIN_WITHDRAW_INR = 100;
+export const MAX_WITHDRAW_INR = 100000;
+
+const HORIZON_LEVERAGE: Record<TimeHorizon, number> = {
+  '15s': 15,
+  '30s': 12,
+  '1m': 10,
+  '5m': 8,
+  '15m': 6,
+  '1h': 5,
+  '4h': 4,
+  '1d': 3,
+  '24h': 3,
+  '7d': 2,
+};
+
+const HORIZON_DURATION_SECONDS: Record<TimeHorizon, number> = {
+  '15s': 15,
+  '30s': 30,
+  '1m': 60,
+  '5m': 300,
+  '15m': 900,
+  '1h': 3600,
+  '4h': 14400,
+  '1d': 86400,
+  '24h': 86400,
+  '7d': 604800,
+};
+
+export function getHorizonLeverage(horizon: TimeHorizon): number {
+  return HORIZON_LEVERAGE[horizon] ?? 8;
+}
+
+export function getHorizonDurationSeconds(horizon: TimeHorizon): number {
+  return HORIZON_DURATION_SECONDS[horizon] ?? 300;
+}
+
+export function formatExactDateTime(ms = Date.now()): string {
+  const d = new Date(ms);
+  const datePart = d.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+  });
+  const timePart = d.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+  return `${datePart}, ${timePart}`;
+}
+
+export interface FeeBreakdown {
+  stake: number;
+  commission: number;
+  handlingFee: number;
+  totalDebit: number;
+}
+
+export function calculateTradeFees(stake: number): FeeBreakdown {
+  const cleanStake = Number.isFinite(stake) && stake > 0 ? stake : 0;
+  const commission = Math.round(cleanStake * PLATFORM_COMMISSION_RATE * 100) / 100;
+  const handlingFee = cleanStake > 0 ? HANDLING_FEE_INR : 0;
+  const totalDebit = Math.round((cleanStake + commission + handlingFee) * 100) / 100;
+  return {
+    stake: cleanStake,
+    commission,
+    handlingFee,
+    totalDebit,
+  };
+}
+
+export function validateTradeStake(
+  stake: number,
+  balance: number
+): { valid: boolean; error?: string; fees: FeeBreakdown } {
+  const fees = calculateTradeFees(stake);
+  if (!Number.isFinite(stake) || stake < MIN_TRADE_STAKE_INR) {
+    return {
+      valid: false,
+      error: `Minimum trade stake is ₹${MIN_TRADE_STAKE_INR}.`,
+      fees,
+    };
+  }
+  if (fees.totalDebit > balance) {
+    return {
+      valid: false,
+      error: `Insufficient balance. Need ₹${fees.totalDebit.toFixed(2)}, available ₹${balance.toFixed(2)}.`,
+      fees,
+    };
+  }
+  return { valid: true, fees };
+}
+
+export function calculatePositionPnl(
+  position: Pick<ActivePosition, 'side' | 'entryPrice' | 'stake' | 'horizon'>,
+  currentPrice: number
+): number {
+  if (!position.entryPrice || position.entryPrice <= 0) return 0;
+  const leverage = HORIZON_LEVERAGE[position.horizon] ?? 5;
+  const priceDeltaRatio = (currentPrice - position.entryPrice) / position.entryPrice;
+  const directionalRatio = position.side === 'long' ? priceDeltaRatio : -priceDeltaRatio;
+  const rawPnl = position.stake * directionalRatio * leverage;
+  return Math.round(rawPnl * 100) / 100;
+}
+
+export function calculatePoolPercentages(
+  firstPool: number,
+  secondPool: number
+): { firstPct: number; secondPct: number } {
+  const total = firstPool + secondPool;
+  if (total <= 0) return { firstPct: 50, secondPct: 50 };
+  const firstPct = Math.round((firstPool / total) * 100);
+  return { firstPct, secondPct: 100 - firstPct };
+}
+
+export function computeDebitBreakdown(
+  balance: number,
+  withdrawableBalance: number,
+  debitAmount: number
+): { nextBalance: number; nextWithdrawable: number } {
+  const cleanWithdrawable = Math.min(balance, Math.max(0, withdrawableBalance));
+  const lockedDeposit = Math.max(0, balance - cleanWithdrawable);
+  // Consume locked deposit funds first before reducing withdrawable winnings
+  const excessOverLocked = Math.max(0, debitAmount - lockedDeposit);
+  const nextBalance = Math.max(0, Math.round((balance - debitAmount) * 100) / 100);
+  const nextWithdrawable = Math.min(
+    nextBalance,
+    Math.max(0, Math.round((cleanWithdrawable - excessOverLocked) * 100) / 100)
+  );
+  return { nextBalance, nextWithdrawable };
+}
+
+export function getCurrentUserRestriction(state: AppState): {
+  restricted: boolean;
+  banned: boolean;
+  frozen: boolean;
+  withdrawalsBlocked: boolean;
+  tradingBlocked: boolean;
+  reason?: string;
+} {
+  const cleanEmail = state.profile.email.trim().toLowerCase();
+  if (!cleanEmail) {
+    return {
+      restricted: false,
+      banned: false,
+      frozen: false,
+      withdrawalsBlocked: false,
+      tradingBlocked: false,
+    };
+  }
+  const acc = (state.registeredAccounts ?? []).find(
+    (a) => a.email.trim().toLowerCase() === cleanEmail
+  );
+  if (!acc) {
+    return {
+      restricted: false,
+      banned: false,
+      frozen: false,
+      withdrawalsBlocked: false,
+      tradingBlocked: false,
+    };
+  }
+  const banned = Boolean(acc.banned);
+  const frozen = Boolean(acc.frozen);
+  return {
+    restricted: banned || frozen,
+    banned,
+    frozen,
+    withdrawalsBlocked: Boolean(acc.withdrawalsBlocked),
+    tradingBlocked: Boolean(acc.tradingBlocked),
+    reason: banned ? acc.banReason || acc.freezeReason : acc.freezeReason,
+  };
+}
+
+export function isCurrentUserFrozen(state: AppState): { frozen: boolean; reason?: string } {
+  const res = getCurrentUserRestriction(state);
+  return { frozen: res.restricted, reason: res.reason };
+}
+
+export function getEffectivePlatformSettings(
+  state?: Pick<AppState, 'platformSettings'>
+): PlatformSettings {
+  return {
+    ...DEFAULT_PLATFORM_SETTINGS,
+    ...(state?.platformSettings ?? {}),
+  };
+}
+
+export function getActiveMerchantUpis(
+  state?: Pick<AppState, 'merchantUpiPool'>
+): MerchantUpiConfig[] {
+  const pool =
+    Array.isArray(state?.merchantUpiPool) && state.merchantUpiPool.length > 0
+      ? state.merchantUpiPool
+      : DEFAULT_MERCHANT_UPIS;
+  const active = pool.filter((u) => u.active && u.upiId.trim());
+  const source = active.length > 0 ? active : pool.filter((u) => u.upiId.trim());
+  if (source.length === 0) return DEFAULT_MERCHANT_UPIS;
+  return [...source].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary));
+}
+
+export function getPrimaryMerchantUpi(
+  state?: Pick<AppState, 'merchantUpiPool'>,
+  preferredId?: string
+): MerchantUpiConfig {
+  const active = getActiveMerchantUpis(state);
+  if (preferredId) {
+    const match = active.find((u) => u.id === preferredId);
+    if (match) return match;
+  }
+  return active.find((u) => u.isPrimary) ?? active[0] ?? DEFAULT_MERCHANT_UPIS[0];
+}
+
+export function executeTradeOrder(
+  state: AppState,
+  params: {
+    assetId: string;
+    side: TradeSide;
+    horizon: TimeHorizon;
+    stake: number;
+  },
+  nowMs = Date.now()
+): { ok: true; nextState: AppState; position: ActivePosition } | { ok: false; error: string } {
+  const restriction = getCurrentUserRestriction(state);
+  if (restriction.restricted) {
+    return {
+      ok: false,
+      error: `${restriction.banned ? 'Account banned' : 'Account is currently frozen'}${
+        restriction.reason ? `: ${restriction.reason}` : '. Contact Admin support.'
+      }`,
+    };
+  }
+  if (restriction.tradingBlocked) {
+    return {
+      ok: false,
+      error: 'Trading is temporarily paused on your account by Owner Console.',
+    };
+  }
+  const asset = state.assets.find((a) => a.id === params.assetId);
+  if (!asset) {
+    return { ok: false, error: 'Selected market asset was not found.' };
+  }
+
+  const check = validateTradeStake(params.stake, state.balance);
+  if (!check.valid) {
+    return { ok: false, error: check.error ?? 'Invalid stake amount.' };
+  }
+
+  const cleanEmail = state.profile.email.trim().toLowerCase();
+  const cleanName = state.profile.name.trim() || cleanEmail || 'Trader';
+  const cleanWithdrawable = Math.min(state.balance, Math.max(0, state.withdrawableBalance ?? state.balance));
+  const lockedDeposit = Math.max(0, state.balance - cleanWithdrawable);
+  const lockedDebitUsed = roundMoney(Math.min(check.fees.totalDebit, lockedDeposit));
+  const withdrawableDebitUsed = roundMoney(Math.max(0, check.fees.totalDebit - lockedDebitUsed));
+
+  const durationSeconds = getHorizonDurationSeconds(params.horizon);
+  const posId = `pos-${nowMs}-${Math.random().toString(36).slice(2, 6)}`;
+  const feePaid = roundMoney(check.fees.commission + check.fees.handlingFee);
+
+  const pool = state.platformPositions ?? state.positions;
+  const canMatchUser = (p: ActivePosition) => {
+    const pEmail = (p.userEmail ?? '').trim().toLowerCase();
+    if (!cleanEmail && !pEmail) return false;
+    return pEmail !== cleanEmail;
+  };
+
+  // Priority 1: Opposite prediction peer match (UP vs DOWN on same asset)
+  let partner = pool.find(
+    (p) =>
+      p.status === 'open' &&
+      (p.p2pStatus ?? 'Pending') === 'Pending' &&
+      p.assetId === asset.id &&
+      p.side !== params.side &&
+      canMatchUser(p)
+  );
+  let matchKind: P2PMatchKind = 'opposite';
+
+  // Priority 2: Same-side prediction peer match (Both UP or Both DOWN on same asset)
+  if (!partner) {
+    partner = pool.find(
+      (p) =>
+        p.status === 'open' &&
+        (p.p2pStatus ?? 'Pending') === 'Pending' &&
+        p.assetId === asset.id &&
+        p.side === params.side &&
+        canMatchUser(p)
+    );
+    matchKind = partner ? 'same_side' : 'none';
+  }
+
+  const pairId = partner
+    ? `pair-${nowMs}-${Math.random().toString(36).slice(2, 6)}`
+    : undefined;
+  const p2pStatus: P2PTradeStatus = partner ? 'Matched' : 'Pending';
+  const matchAnchorPrice = partner ? asset.price : undefined;
+  const sideLabel = params.side === 'long' ? 'UP (Long)' : 'DOWN (Short)';
+  const partnerSideLabel = partner?.side === 'long' ? 'UP' : 'DOWN';
+
+  const position: ActivePosition = {
+    id: posId,
+    assetId: asset.id,
+    symbol: asset.symbol,
+    side: params.side,
+    horizon: params.horizon,
+    durationSeconds,
+    expiresAtMs: nowMs + durationSeconds * 1000,
+    stake: check.fees.stake,
+    feePaid,
+    entryPrice: asset.price,
+    openedAt: formatExactDateTime(nowMs),
+    status: 'open',
+    userEmail: cleanEmail || undefined,
+    userName: cleanName,
+    p2pStatus,
+    matchKind,
+    pairId,
+    counterpartyPositionId: partner?.id,
+    counterpartyEmail: partner?.userEmail,
+    counterpartyName: partner?.userName,
+    matchAnchorPrice,
+    lockedDebitUsed,
+    withdrawableDebitUsed,
+    outcomeNote: partner
+      ? `Matched (${matchKind === 'opposite' ? 'Opposite' : 'Same-Side'}) vs ${
+          partner.userName || 'Peer'
+        } (${partnerSideLabel}) @ ${asset.price.toFixed(2)}`
+      : 'Pending peer match · Full 100% refund if unmatched at expiry',
+  };
+
+  const patchPartnerPosition = (p: ActivePosition): ActivePosition => {
+    if (!partner || p.id !== partner.id) return p;
+    return {
+      ...p,
+      p2pStatus: 'Matched',
+      matchKind,
+      pairId,
+      counterpartyPositionId: posId,
+      counterpartyEmail: cleanEmail || undefined,
+      counterpartyName: cleanName,
+      matchAnchorPrice,
+      outcomeNote: `Matched (${matchKind === 'opposite' ? 'Opposite' : 'Same-Side'}) vs ${cleanName} (${
+        params.side === 'long' ? 'UP' : 'DOWN'
+      }) @ ${asset.price.toFixed(2)}`,
+    };
+  };
+
+  const updatedPool = partner ? pool.map(patchPartnerPosition) : pool;
+  const nextPlatformPositions = [position, ...updatedPool].slice(0, 200);
+
+  const nextAssets: MarketAsset[] = state.assets.map((a) => {
+    if (a.id !== asset.id) return a;
+    return {
+      ...a,
+      longPoolAmount: params.side === 'long' ? a.longPoolAmount + check.fees.stake : a.longPoolAmount,
+      shortPoolAmount: params.side === 'short' ? a.shortPoolAmount + check.fees.stake : a.shortPoolAmount,
+    };
+  });
+
+  const { nextBalance, nextWithdrawable } = computeDebitBreakdown(
+    state.balance,
+    state.withdrawableBalance ?? state.balance,
+    check.fees.totalDebit
+  );
+
+  const openTx: WalletTransaction = {
+    id: `tx-${nowMs}-${Math.random().toString(36).slice(2, 6)}`,
+    type: 'trade_open',
+    title: `${asset.symbol} ${sideLabel} (${params.horizon})`,
+    amount: -check.fees.totalDebit,
+    timestamp: formatExactDateTime(nowMs),
+    status: partner ? 'Matched' : 'Pending',
+    meta: partner
+      ? `P2P ${matchKind === 'opposite' ? 'Opposite' : 'Same-Side'} Match @ ${asset.price.toFixed(2)} · Timer ${params.horizon}`
+      : `Pending peer match @ ${asset.price.toFixed(2)} · Timer ${params.horizon}`,
+    createdAtMs: nowMs,
+  };
+
+  const nextRegistered = (state.registeredAccounts ?? []).map((acc) => {
+    const accEmail = acc.email.trim().toLowerCase();
+    if (cleanEmail && accEmail === cleanEmail) {
+      return {
+        ...acc,
+        balance: nextBalance,
+        withdrawableBalance: nextWithdrawable,
+        positions: [position, ...state.positions],
+        transactions: [openTx, ...state.transactions],
+      };
+    }
+    if (partner && accEmail === (partner.userEmail ?? '').trim().toLowerCase()) {
+      return {
+        ...acc,
+        positions: (acc.positions ?? []).map(patchPartnerPosition),
+      };
+    }
+    return acc;
+  });
+
+  const baseState: AppState = {
+    ...state,
+    balance: nextBalance,
+    withdrawableBalance: nextWithdrawable,
+    assets: nextAssets,
+    positions: [position, ...state.positions],
+    platformPositions: nextPlatformPositions,
+    registeredAccounts: nextRegistered,
+    transactions: [openTx, ...state.transactions],
+  };
+
+  const { nextState } = applyReferralRewardOnFirstBet(baseState, nowMs);
+  return { ok: true, nextState, position };
+}
+
+interface LegSettlementDelta {
+  pos: ActivePosition;
+  updatedPos: ActivePosition;
+  deltaBalance: number;
+  deltaWithdrawable: number;
+  deltaRealizedPnl: number;
+  deltaTodayReceived: number;
+  tx: WalletTransaction;
+}
+
+function applyLegDeltasToState(
+  state: AppState,
+  deltas: LegSettlementDelta[]
+): AppState {
+  let nextState = state;
+  for (const d of deltas) {
+    const targetEmail = (d.pos.userEmail ?? '').trim().toLowerCase();
+    const isCurrentSession =
+      nextState.positions.some((p) => p.id === d.pos.id) ||
+      (Boolean(targetEmail) && nextState.profile.email.trim().toLowerCase() === targetEmail);
+
+    const nextPlatformPositions = (nextState.platformPositions ?? nextState.positions).map((p) =>
+      p.id === d.pos.id ? d.updatedPos : p
+    );
+
+    const nextRegistered = (nextState.registeredAccounts ?? []).map((acc) => {
+      const accEmail = acc.email.trim().toLowerCase();
+      const ownsPos = (acc.positions ?? []).some((p) => p.id === d.pos.id);
+      if (!ownsPos && (!targetEmail || accEmail !== targetEmail)) {
+        return acc;
+      }
+      const nextAccBal = roundMoney((acc.balance ?? 0) + d.deltaBalance);
+      const nextAccWithdraw = Math.min(
+        nextAccBal,
+        roundMoney(Math.max(0, (acc.withdrawableBalance ?? 0) + d.deltaWithdrawable))
+      );
+      return {
+        ...acc,
+        balance: nextAccBal,
+        withdrawableBalance: nextAccWithdraw,
+        realizedPnl: roundMoney((acc.realizedPnl ?? 0) + d.deltaRealizedPnl),
+        todayReceived:
+          d.deltaTodayReceived > 0
+            ? roundMoney((acc.todayReceived ?? 0) + d.deltaTodayReceived)
+            : acc.todayReceived ?? 0,
+        positions: (acc.positions ?? []).map((p) =>
+          p.id === d.pos.id ? d.updatedPos : p
+        ),
+        transactions: [d.tx, ...(acc.transactions ?? [])],
+      };
+    });
+
+    if (isCurrentSession) {
+      const nextBalance = roundMoney(nextState.balance + d.deltaBalance);
+      const currentWithdrawable = Math.max(0, nextState.withdrawableBalance ?? 0);
+      const nextWithdrawable = Math.min(
+        nextBalance,
+        roundMoney(currentWithdrawable + d.deltaWithdrawable)
+      );
+      nextState = {
+        ...nextState,
+        balance: nextBalance,
+        withdrawableBalance: nextWithdrawable,
+        realizedPnl: roundMoney(nextState.realizedPnl + d.deltaRealizedPnl),
+        todayReceived:
+          d.deltaTodayReceived > 0
+            ? roundMoney(nextState.todayReceived + d.deltaTodayReceived)
+            : nextState.todayReceived,
+        positions: nextState.positions.map((p) => (p.id === d.pos.id ? d.updatedPos : p)),
+        platformPositions: nextPlatformPositions,
+        registeredAccounts: nextRegistered,
+        transactions: [d.tx, ...nextState.transactions],
+      };
+    } else {
+      nextState = {
+        ...nextState,
+        platformPositions: nextPlatformPositions,
+        registeredAccounts: nextRegistered,
+      };
+    }
+  }
+  return nextState;
+}
+
+export function closeTradePosition(
+  state: AppState,
+  positionId: string,
+  nowMs = Date.now()
+):
+  | {
+      ok: true;
+      nextState: AppState;
+      pnl: number;
+      payout: number;
+      p2pStatus: 'Settled' | 'Cancelled/Refunded';
+      outcomeNote: string;
+    }
+  | { ok: false; error: string } {
+  const pool = state.platformPositions ?? state.positions;
+  const position = pool.find((p) => p.id === positionId && p.status === 'open');
+  if (!position) {
+    return { ok: false, error: 'Open position not found.' };
+  }
+
+  const asset = state.assets.find((a) => a.id === position.assetId);
+  const exitPrice = asset ? asset.price : position.entryPrice;
+  const settledAt = formatExactDateTime(nowMs);
+  const cfg = getEffectiveReferralConfig(state);
+  const feePct = Math.max(0, cfg.platformFeePct ?? 5);
+
+  const partner =
+    position.p2pStatus === 'Matched' && position.counterpartyPositionId
+      ? pool.find(
+          (p) =>
+            p.id === position.counterpartyPositionId &&
+            p.status === 'open'
+        )
+      : undefined;
+
+  const buildRefundDelta = (
+    p: ActivePosition,
+    reasonNote: string,
+    txTitleSuffix: string
+  ): LegSettlementDelta => {
+    const refundAmount = roundMoney(p.stake + p.feePaid);
+    const restoreWithdrawable = Math.min(refundAmount, p.withdrawableDebitUsed ?? 0);
+    const updatedPos: ActivePosition = {
+      ...p,
+      status: 'closed',
+      p2pStatus: 'Cancelled/Refunded',
+      exitPrice,
+      realizedPnl: 0,
+      payout: refundAmount,
+      refundAmount,
+      commissionApplied: 0,
+      closedAt: settledAt,
+      outcomeNote: reasonNote,
+    };
+    const sideLabel = p.side === 'long' ? 'UP (Long)' : 'DOWN (Short)';
+    return {
+      pos: p,
+      updatedPos,
+      deltaBalance: refundAmount,
+      deltaWithdrawable: restoreWithdrawable,
+      deltaRealizedPnl: 0,
+      deltaTodayReceived: 0,
+      tx: {
+        id: `tx-ref-${nowMs}-${p.id.slice(-4)}`,
+        type: 'trade_refund',
+        title: `${p.symbol} ${sideLabel} ${txTitleSuffix}`,
+        amount: refundAmount,
+        timestamp: settledAt,
+        status: 'Cancelled/Refunded',
+        meta: reasonNote,
+        createdAtMs: nowMs,
+      },
+    };
+  };
+
+  // Rule 2: No-Match Scenario -> 100% full refund, ₹0 commission
+  if (!partner || position.matchKind === 'none' || !position.matchKind) {
+    const note = 'No peer match found before expiry · 100% Refunded (₹0 commission)';
+    const delta = buildRefundDelta(position, note, 'Cancelled (No Match)');
+    const nextState = applyLegDeltasToState(state, [delta]);
+    return {
+      ok: true,
+      nextState,
+      pnl: 0,
+      payout: delta.deltaBalance,
+      p2pStatus: 'Cancelled/Refunded',
+      outcomeNote: note,
+    };
+  }
+
+  const anchor = position.matchAnchorPrice ?? partner.matchAnchorPrice ?? position.entryPrice;
+
+  // Rule 1: Opposite Predictions (UP vs DOWN)
+  if (position.matchKind === 'opposite') {
+    if (exitPrice === anchor) {
+      const tieNote = `Price unchanged at anchor (${anchor.toFixed(2)}) · Cancelled & 100% refunded to both peers`;
+      const d1 = buildRefundDelta(position, tieNote, 'Cancelled (Flat Price)');
+      const d2 = buildRefundDelta(partner, tieNote, 'Cancelled (Flat Price)');
+      const nextState = applyLegDeltasToState(state, [d1, d2]);
+      return {
+        ok: true,
+        nextState,
+        pnl: 0,
+        payout: d1.deltaBalance,
+        p2pStatus: 'Cancelled/Refunded',
+        outcomeNote: tieNote,
+      };
+    }
+
+    const winningSide: TradeSide = exitPrice > anchor ? 'long' : 'short';
+    const winner = position.side === winningSide ? position : partner;
+    const loser = winner.id === position.id ? partner : position;
+    const matchedStake = roundMoney(Math.min(winner.stake, loser.stake));
+    const settlementCommission = roundMoney(matchedStake * (feePct / 100));
+    const netProfit = roundMoney(matchedStake - settlementCommission);
+    const winnerPayout = roundMoney(winner.stake + netProfit);
+    const loserExcessRefund = roundMoney(Math.max(0, loser.stake - matchedStake));
+    const loserRealized = -matchedStake;
+    const entryFeesTotal = roundMoney(winner.feePaid + loser.feePaid);
+    const ownerCredit = roundMoney(settlementCommission + entryFeesTotal);
+
+    const winDirLabel = exitPrice > anchor ? 'UP' : 'DOWN';
+    const winnerNote = `Opposite P2P Won (Price went ${winDirLabel}: ${exitPrice.toFixed(2)} vs ${anchor.toFixed(
+      2
+    )}) · Net +₹${netProfit.toFixed(2)} after ${feePct}% fee`;
+    const loserNote = `Opposite P2P Settled (Price went ${winDirLabel}: ${exitPrice.toFixed(2)} vs ${anchor.toFixed(
+      2
+    )}) · Loss -₹${matchedStake.toFixed(2)}${
+      loserExcessRefund > 0 ? ` · Excess ₹${loserExcessRefund.toFixed(2)} refunded` : ''
+    }`;
+
+    const winnerDelta: LegSettlementDelta = {
+      pos: winner,
+      updatedPos: {
+        ...winner,
+        status: 'closed',
+        p2pStatus: 'Settled',
+        exitPrice,
+        realizedPnl: netProfit,
+        payout: winnerPayout,
+        commissionApplied: roundMoney(winner.feePaid + settlementCommission),
+        closedAt: settledAt,
+        outcomeNote: winnerNote,
+      },
+      deltaBalance: winnerPayout,
+      deltaWithdrawable: winnerPayout,
+      deltaRealizedPnl: netProfit,
+      deltaTodayReceived: netProfit,
+      tx: {
+        id: `tx-win-${nowMs}-${winner.id.slice(-4)}`,
+        type: 'trade_close',
+        title: `${winner.symbol} ${winner.side === 'long' ? 'UP (Long)' : 'DOWN (Short)'} P2P Won`,
+        amount: winnerPayout,
+        timestamp: settledAt,
+        status: 'Settled',
+        meta: winnerNote,
+        createdAtMs: nowMs,
+      },
+    };
+
+    const loserRestoreWithdrawable =
+      loserExcessRefund > 0
+        ? Math.min(loserExcessRefund, loser.withdrawableDebitUsed ?? 0)
+        : 0;
+
+    const loserDelta: LegSettlementDelta = {
+      pos: loser,
+      updatedPos: {
+        ...loser,
+        status: 'closed',
+        p2pStatus: 'Settled',
+        exitPrice,
+        realizedPnl: loserRealized,
+        payout: loserExcessRefund,
+        refundAmount: loserExcessRefund > 0 ? loserExcessRefund : 0,
+        commissionApplied: loser.feePaid,
+        closedAt: settledAt,
+        outcomeNote: loserNote,
+      },
+      deltaBalance: loserExcessRefund,
+      deltaWithdrawable: loserRestoreWithdrawable,
+      deltaRealizedPnl: loserRealized,
+      deltaTodayReceived: 0,
+      tx: {
+        id: `tx-loss-${nowMs}-${loser.id.slice(-4)}`,
+        type: 'trade_close',
+        title: `${loser.symbol} ${loser.side === 'long' ? 'UP (Long)' : 'DOWN (Short)'} P2P Settled`,
+        amount: loserExcessRefund,
+        timestamp: settledAt,
+        status: 'Settled',
+        meta: loserNote,
+        createdAtMs: nowMs,
+      },
+    };
+
+    const ledgerEntry: CommissionLedgerEntry = {
+      id: `cl-p2p-${nowMs}-${position.id.slice(-4)}`,
+      timestamp: settledAt,
+      createdAtMs: nowMs,
+      actorEmail: winner.userEmail || position.userEmail || 'p2p-desk',
+      actorName: `${winner.userName || 'Winner'} vs ${loser.userName || 'Peer'}`,
+      kind: 'matched_opposite',
+      grossAmountInr: roundMoney(winner.stake + loser.stake),
+      platformFeeInr: ownerCredit,
+      ownerNetRevenueInr: ownerCredit,
+      note: `Matched Opposite ${winner.symbol} (${winDirLabel} won @ ${exitPrice.toFixed(
+        2
+      )}) · ${feePct}% Commission ₹${settlementCommission.toFixed(2)} + Entry Fees ₹${entryFeesTotal.toFixed(2)}`,
+    };
+
+    const updatedState = applyLegDeltasToState(state, [winnerDelta, loserDelta]);
+    const finalState: AppState = {
+      ...updatedState,
+      ownerFeeRevenue: roundMoney((updatedState.ownerFeeRevenue ?? 0) + ownerCredit),
+      commissionLedger: [ledgerEntry, ...(updatedState.commissionLedger ?? [])].slice(0, 80),
+    };
+
+    const targetIsWinner = position.id === winner.id;
+    return {
+      ok: true,
+      nextState: finalState,
+      pnl: targetIsWinner ? netProfit : loserRealized,
+      payout: targetIsWinner ? winnerPayout : loserExcessRefund,
+      p2pStatus: 'Settled',
+      outcomeNote: targetIsWinner ? winnerNote : loserNote,
+    };
+  }
+
+  // Rule 3: Same-Side Predictions (Both UP or Both DOWN)
+  const isOppositeMoveLoss =
+    (position.side === 'long' && exitPrice < anchor) ||
+    (position.side === 'short' && exitPrice > anchor);
+  const predictedLabel = position.side === 'long' ? 'UP' : 'DOWN';
+  const movedLabel = exitPrice > anchor ? 'UP' : exitPrice < anchor ? 'DOWN' : 'FLAT';
+
+  if (isOppositeMoveLoss) {
+    // Case 3A: Both users lose; entire invested pool goes to Platform Owner
+    const poolTotal = roundMoney(
+      position.stake + position.feePaid + partner.stake + partner.feePaid
+    );
+    const forfeitNote = `Same-Side ${predictedLabel} Loss (Price moved ${movedLabel}: ${exitPrice.toFixed(
+      2
+    )} vs ${anchor.toFixed(2)}) · Invested pool credited to Platform Owner`;
+
+    const makeForfeitDelta = (p: ActivePosition): LegSettlementDelta => ({
+      pos: p,
+      updatedPos: {
+        ...p,
+        status: 'closed',
+        p2pStatus: 'Settled',
+        exitPrice,
+        realizedPnl: -p.stake,
+        payout: 0,
+        commissionApplied: roundMoney(p.stake + p.feePaid),
+        closedAt: settledAt,
+        outcomeNote: forfeitNote,
+      },
+      deltaBalance: 0,
+      deltaWithdrawable: 0,
+      deltaRealizedPnl: -p.stake,
+      deltaTodayReceived: 0,
+      tx: {
+        id: `tx-ssloss-${nowMs}-${p.id.slice(-4)}`,
+        type: 'trade_close',
+        title: `${p.symbol} Both ${predictedLabel} · Same-Side Settled`,
+        amount: 0,
+        timestamp: settledAt,
+        status: 'Settled',
+        meta: forfeitNote,
+        createdAtMs: nowMs,
+      },
+    });
+
+    const d1 = makeForfeitDelta(position);
+    const d2 = makeForfeitDelta(partner);
+
+    const ledgerEntry: CommissionLedgerEntry = {
+      id: `cl-ssf-${nowMs}-${position.id.slice(-4)}`,
+      timestamp: settledAt,
+      createdAtMs: nowMs,
+      actorEmail: position.userEmail || 'same-side-pool',
+      actorName: `${position.userName || 'User A'} + ${partner.userName || 'User B'}`,
+      kind: 'same_side_forfeiture',
+      grossAmountInr: roundMoney(position.stake + partner.stake),
+      platformFeeInr: poolTotal,
+      ownerNetRevenueInr: poolTotal,
+      note: `Same-Side Forfeiture (${position.symbol} Both ${predictedLabel}, price went ${movedLabel}) · Pool ₹${poolTotal.toFixed(
+        2
+      )} → Platform Owner`,
+    };
+
+    const updatedState = applyLegDeltasToState(state, [d1, d2]);
+    const finalState: AppState = {
+      ...updatedState,
+      ownerFeeRevenue: roundMoney((updatedState.ownerFeeRevenue ?? 0) + poolTotal),
+      commissionLedger: [ledgerEntry, ...(updatedState.commissionLedger ?? [])].slice(0, 80),
+    };
+
+    return {
+      ok: true,
+      nextState: finalState,
+      pnl: -position.stake,
+      payout: 0,
+      p2pStatus: 'Settled',
+      outcomeNote: forfeitNote,
+    };
+  }
+
+  // Case 3B: Both predicted UP & price went UP/flat, OR Both predicted DOWN & price went DOWN/flat -> Cancelled & 100% Refunded
+  const refundNote = `Same-Side Both ${predictedLabel} · Price moved ${movedLabel} (${exitPrice.toFixed(
+    2
+  )} vs ${anchor.toFixed(2)}) · Trade cancelled & 100% refunded to both users`;
+  const d1 = buildRefundDelta(position, refundNote, 'Cancelled (Same-Side Refund)');
+  const d2 = buildRefundDelta(partner, refundNote, 'Cancelled (Same-Side Refund)');
+  const nextState = applyLegDeltasToState(state, [d1, d2]);
+  return {
+    ok: true,
+    nextState,
+    pnl: 0,
+    payout: d1.deltaBalance,
+    p2pStatus: 'Cancelled/Refunded',
+    outcomeNote: refundNote,
+  };
+}
+
+export function settleExpiredPositions(
+  state: AppState,
+  nowMs = Date.now()
+): { nextState: AppState; settled: SettledPositionSummary[] } {
+  const pool = state.platformPositions ?? state.positions;
+  const expired = pool.filter(
+    (p) => p.status === 'open' && typeof p.expiresAtMs === 'number' && p.expiresAtMs > 0 && nowMs >= p.expiresAtMs
+  );
+  if (expired.length === 0) {
+    return { nextState: state, settled: [] };
+  }
+
+  const activeUserIdsBefore = new Set(state.positions.map((p) => p.id));
+  let runningState = state;
+  const settled: SettledPositionSummary[] = [];
+
+  for (const pos of expired) {
+    // If settling its counterparty already closed this leg atomically, skip
+    const stillOpen = (runningState.platformPositions ?? runningState.positions).some(
+      (p) => p.id === pos.id && p.status === 'open'
+    );
+    if (!stillOpen) continue;
+
+    const partnerId = pos.counterpartyPositionId;
+    const res = closeTradePosition(runningState, pos.id, nowMs);
+    if (res.ok) {
+      runningState = res.nextState;
+
+      // Record summary for active session user positions settled (either pos or its partner)
+      for (const legId of partnerId ? [pos.id, partnerId] : [pos.id]) {
+        if (!activeUserIdsBefore.has(legId)) continue;
+        const closedLeg = runningState.positions.find((p) => p.id === legId);
+        if (!closedLeg) continue;
+        const legPnl = closedLeg.realizedPnl ?? 0;
+        const legPayout = closedLeg.payout ?? 0;
+        settled.push({
+          id: closedLeg.id,
+          symbol: closedLeg.symbol,
+          side: closedLeg.side,
+          stake: closedLeg.stake,
+          entryPrice: closedLeg.entryPrice,
+          exitPrice: closedLeg.exitPrice ?? closedLeg.entryPrice,
+          pnl: legPnl,
+          payout: legPayout,
+          won: (closedLeg.p2pStatus ?? 'Settled') === 'Settled' && legPnl > 0,
+          settledAt: closedLeg.closedAt ?? formatExactDateTime(nowMs),
+          p2pStatus:
+            closedLeg.p2pStatus === 'Cancelled/Refunded' ? 'Cancelled/Refunded' : 'Settled',
+          matchKind: closedLeg.matchKind,
+          outcomeNote: closedLeg.outcomeNote,
+        });
+      }
+    }
+  }
+
+  return { nextState: runningState, settled };
+}
+
+export function placePredictionBet(
+  state: AppState,
+  params: {
+    marketId: string;
+    choice: 'yes' | 'no';
+    stake: number;
+  },
+  nowMs = Date.now()
+): { ok: true; nextState: AppState; bet: ActiveBet } | { ok: false; error: string } {
+  const restriction = getCurrentUserRestriction(state);
+  if (restriction.restricted) {
+    return {
+      ok: false,
+      error: `${restriction.banned ? 'Account banned' : 'Account is currently frozen'}${
+        restriction.reason ? `: ${restriction.reason}` : '. Contact Admin support.'
+      }`,
+    };
+  }
+  if (restriction.tradingBlocked) {
+    return {
+      ok: false,
+      error: 'Trading and prediction bets are temporarily paused on your account.',
+    };
+  }
+  const market = state.predictions.find((m) => m.id === params.marketId);
+  if (!market) {
+    return { ok: false, error: 'Prediction market not found.' };
+  }
+  if (!Number.isFinite(params.stake) || params.stake < MIN_BET_STAKE_INR) {
+    return { ok: false, error: `Minimum prediction bet is ₹${MIN_BET_STAKE_INR}.` };
+  }
+  if (params.stake > state.balance) {
+    return {
+      ok: false,
+      error: `Insufficient wallet balance (available ₹${state.balance.toFixed(2)}).`,
+    };
+  }
+
+  const totalPool = market.yesPool + market.noPool + params.stake;
+  const chosenPool = (params.choice === 'yes' ? market.yesPool : market.noPool) + params.stake;
+  const multiplier = Math.max(1.15, Math.min(4.5, Math.round((totalPool / chosenPool) * 100) / 100));
+
+  const bet: ActiveBet = {
+    id: `bet-${nowMs}-${Math.random().toString(36).slice(2, 6)}`,
+    marketId: market.id,
+    question: market.question,
+    choice: params.choice,
+    stake: params.stake,
+    multiplier,
+    placedAt: formatExactDateTime(nowMs),
+    status: 'open',
+  };
+
+  const nextPredictions: PredictionMarket[] = state.predictions.map((m) => {
+    if (m.id !== market.id) return m;
+    return {
+      ...m,
+      yesPool: params.choice === 'yes' ? m.yesPool + params.stake : m.yesPool,
+      noPool: params.choice === 'no' ? m.noPool + params.stake : m.noPool,
+      yesBettors: params.choice === 'yes' ? m.yesBettors + 1 : m.yesBettors,
+      noBettors: params.choice === 'no' ? m.noBettors + 1 : m.noBettors,
+    };
+  });
+
+  const { nextBalance, nextWithdrawable } = computeDebitBreakdown(
+    state.balance,
+    state.withdrawableBalance ?? state.balance,
+    params.stake
+  );
+
+  const baseState: AppState = {
+    ...state,
+    balance: nextBalance,
+    withdrawableBalance: nextWithdrawable,
+    predictions: nextPredictions,
+    bets: [bet, ...state.bets],
+    transactions: [
+      {
+        id: `tx-${nowMs}`,
+        type: 'bet_place',
+        title: `Prediction ${params.choice.toUpperCase()} · ${market.subLabel}`,
+        amount: -params.stake,
+        timestamp: formatExactDateTime(nowMs),
+        status: 'Completed',
+        meta: `${multiplier.toFixed(2)}x Est. Payout`,
+        createdAtMs: nowMs,
+      },
+      ...state.transactions,
+    ],
+  };
+
+  const { nextState } = applyReferralRewardOnFirstBet(baseState, nowMs);
+  return { ok: true, nextState, bet };
+}
+
+export function redeemGiftCode(
+  state: AppState,
+  rawCode: string,
+  nowMs = Date.now()
+): { ok: true; nextState: AppState; amount: number; code: string } | { ok: false; error: string } {
+  const code = rawCode.trim().toUpperCase();
+  if (!code) {
+    return { ok: false, error: 'Please enter a gift code.' };
+  }
+  const customMatch = (state.customGiftCodes ?? []).find(
+    (g) => g.code.trim().toUpperCase() === code && g.active
+  );
+  const reward = customMatch
+    ? { amount: customMatch.amount, label: customMatch.label }
+    : VALID_GIFT_CODES[code];
+  if (!reward) {
+    return {
+      ok: false,
+      error: 'Invalid gift code. Try OURO500, WELCOME250, or VIP1000.',
+    };
+  }
+  if (state.redeemedGifts.some((g) => g.code === code)) {
+    return { ok: false, error: `Gift code ${code} has already been redeemed.` };
+  }
+
+  const stamp = formatExactDateTime(nowMs);
+
+  const nextState: AppState = {
+    ...state,
+    balance: Math.round((state.balance + reward.amount) * 100) / 100,
+    todayReceived: Math.round((state.todayReceived + reward.amount) * 100) / 100,
+    redeemedGifts: [
+      {
+        id: `gift-${nowMs}`,
+        code,
+        amount: reward.amount,
+        redeemedAt: stamp,
+        label: reward.label,
+      },
+      ...state.redeemedGifts,
+    ],
+    transactions: [
+      {
+        id: `tx-${nowMs}`,
+        type: 'gift_redeem',
+        title: `Gift Code ${code}`,
+        amount: reward.amount,
+        timestamp: stamp,
+        status: 'Credited',
+        meta: reward.label,
+        createdAtMs: nowMs,
+      },
+      ...state.transactions,
+    ],
+  };
+
+  return { ok: true, nextState, amount: reward.amount, code };
+}
+
+export function validateUpiId(raw: string): { valid: boolean; cleaned: string; error?: string } {
+  const cleaned = raw.trim().toLowerCase();
+  if (!cleaned) {
+    return { valid: false, cleaned, error: 'Please enter a valid UPI ID (e.g. name@okicici).' };
+  }
+  const upiRegex = /^[a-z0-9._-]{2,64}@[a-z0-9.-]{2,32}$/i;
+  if (!upiRegex.test(cleaned)) {
+    return {
+      valid: false,
+      cleaned,
+      error: 'Enter a valid UPI ID format like name@okicici or mobile@ybl.',
+    };
+  }
+  return { valid: true, cleaned };
+}
+
+export function validateUtr12Digits(raw: string): { valid: boolean; cleaned: string; error?: string } {
+  const cleaned = raw.replace(/\D/g, '');
+  if (raw.trim() !== cleaned || cleaned.length !== 12) {
+    return {
+      valid: false,
+      cleaned,
+      error: 'UTR must be a strictly 12-digit number (e.g. 412345678901).',
+    };
+  }
+  return { valid: true, cleaned };
+}
+
+export function applyTopUp(
+  state: AppState,
+  amount: number,
+  method: string,
+  utr?: string,
+  nowMs = Date.now(),
+  options?: { instantCredit?: boolean }
+): { ok: true; nextState: AppState; transaction: WalletTransaction } | { ok: false; error: string } {
+  const restriction = getCurrentUserRestriction(state);
+  if (restriction.restricted) {
+    return {
+      ok: false,
+      error: `${restriction.banned ? 'Account banned' : 'Account is frozen'}${
+        restriction.reason ? `: ${restriction.reason}` : '. Contact Admin support.'
+      }`,
+    };
+  }
+
+  const platformSettings = getEffectivePlatformSettings(state);
+  if (platformSettings.depositsPaused) {
+    return {
+      ok: false,
+      error:
+        platformSettings.maintenanceNotice.trim() ||
+        'Deposits are temporarily paused for gateway maintenance.',
+    };
+  }
+
+  const cfg = getEffectiveReferralConfig(state);
+  const minDeposit = cfg.minDepositInr || MIN_TOPUP_INR;
+  const maxDeposit = platformSettings.maxDepositInr || MAX_TOPUP_INR;
+  if (!Number.isFinite(amount) || amount < minDeposit) {
+    return { ok: false, error: `Minimum deposit amount is ₹${minDeposit}.` };
+  }
+  if (amount > maxDeposit) {
+    return {
+      ok: false,
+      error: `Maximum single deposit amount is ₹${maxDeposit.toLocaleString('en-IN')}.`,
+    };
+  }
+
+  let cleanUtr: string | undefined;
+  if (utr !== undefined) {
+    const utrCheck = validateUtr12Digits(utr);
+    if (!utrCheck.valid) {
+      return { ok: false, error: utrCheck.error ?? 'UTR must be exactly 12 digits.' };
+    }
+    cleanUtr = utrCheck.cleaned;
+  }
+
+  const cleanAmount = Math.round(amount * 100) / 100;
+  const stamp = formatExactDateTime(nowMs);
+  const instantCredit = Boolean(options?.instantCredit);
+
+  const tx: WalletTransaction = {
+    id: `tx-dep-${nowMs}-${Math.random().toString(36).slice(2, 6)}`,
+    type: 'deposit',
+    title: `${method} Top Up`,
+    amount: cleanAmount,
+    timestamp: stamp,
+    status: instantCredit ? 'Credited' : 'Under Review',
+    credited: instantCredit,
+    meta: cleanUtr
+      ? `UTR ${cleanUtr} · ${instantCredit ? 'Verified & Credited' : 'Pending Owner UTR Check'}`
+      : instantCredit
+      ? 'Verified & Credited'
+      : 'Pending Owner Verification · UPI Rail',
+    utr: cleanUtr,
+    createdAtMs: nowMs,
+    userEmail: state.profile.email || undefined,
+    userName: state.profile.name,
+    userUid: state.profile.uid,
+  };
+
+  return {
+    ok: true,
+    transaction: tx,
+    nextState: {
+      ...state,
+      balance: instantCredit
+        ? Math.round((state.balance + cleanAmount) * 100) / 100
+        : state.balance,
+      // Deposited funds remain locked for play until won; withdrawableBalance is NOT incremented directly here.
+      withdrawableBalance: state.withdrawableBalance ?? 0,
+      todayReceived: instantCredit
+        ? Math.round((state.todayReceived + cleanAmount) * 100) / 100
+        : state.todayReceived,
+      transactions: [tx, ...state.transactions],
+      platformTransactions: [tx, ...(state.platformTransactions ?? [])].slice(0, 150),
+    },
+  };
+}
+
+export function applyWithdraw(
+  state: AppState,
+  amount: number,
+  destinationId: string,
+  nowMs = Date.now()
+): { ok: true; nextState: AppState; channelLabel: string; transaction: WalletTransaction } | { ok: false; error: string } {
+  const restriction = getCurrentUserRestriction(state);
+  if (restriction.restricted) {
+    return {
+      ok: false,
+      error: `Withdrawals blocked — ${restriction.banned ? 'account is banned' : 'account is frozen'}${
+        restriction.reason ? `: ${restriction.reason}` : '.'
+      }`,
+    };
+  }
+  if (restriction.withdrawalsBlocked) {
+    return {
+      ok: false,
+      error: 'Withdrawals are paused on your account. Please contact Owner Support.',
+    };
+  }
+  const platformSettings = getEffectivePlatformSettings(state);
+  if (platformSettings.withdrawalsPaused) {
+    return {
+      ok: false,
+      error:
+        platformSettings.maintenanceNotice.trim() ||
+        'Withdrawals are temporarily paused for settlement maintenance.',
+    };
+  }
+
+  const bank = state.bankAccounts.find((b) => b.id === destinationId);
+  const upiAcc = (state.upiAccounts ?? []).find((u) => u.id === destinationId);
+  const inlineUpiRaw = destinationId.startsWith('upi:') ? destinationId.slice(4) : '';
+
+  let title = '';
+  let meta = '';
+  let channelLabel = '';
+  let destinationSummary = '';
+  let destinationCopyValue = '';
+
+  if (bank) {
+    const acctDisplay = bank.accountNumber
+      ? bank.accountNumber
+      : `••••${bank.accountLast4}`;
+    title = `Withdraw to ${bank.bankName} ••••${bank.accountLast4}`;
+    meta = bank.ifsc;
+    channelLabel = `${bank.bankName} ••••${bank.accountLast4}`;
+    destinationSummary = `${bank.holderName} · ${bank.bankName} (${acctDisplay}, IFSC ${bank.ifsc})`;
+    destinationCopyValue = `${bank.bankName} | Acc: ${acctDisplay} | IFSC: ${bank.ifsc} | Holder: ${bank.holderName}`;
+  } else if (upiAcc) {
+    title = `Withdraw to UPI · ${upiAcc.upiId}`;
+    meta = `${upiAcc.appName} Instant`;
+    channelLabel = `${upiAcc.appName} (${upiAcc.upiId})`;
+    destinationSummary = `${upiAcc.appName} · ${upiAcc.upiId} (${upiAcc.holderName})`;
+    destinationCopyValue = upiAcc.upiId;
+  } else if (inlineUpiRaw) {
+    const check = validateUpiId(inlineUpiRaw);
+    if (!check.valid) {
+      return { ok: false, error: check.error ?? 'Invalid UPI ID.' };
+    }
+    title = `Withdraw to UPI · ${check.cleaned}`;
+    meta = 'Instant UPI Payout';
+    channelLabel = check.cleaned;
+    destinationSummary = `UPI · ${check.cleaned}`;
+    destinationCopyValue = check.cleaned;
+  } else {
+    return { ok: false, error: 'Please bind a bank account or UPI ID before withdrawing.' };
+  }
+
+  const cfg = getEffectiveReferralConfig(state);
+  const minWithdraw = cfg.minWithdrawInr || MIN_WITHDRAW_INR;
+  const maxWithdraw = platformSettings.maxWithdrawInr || MAX_WITHDRAW_INR;
+  if (!Number.isFinite(amount) || amount < minWithdraw) {
+    return { ok: false, error: `Minimum withdrawal is ₹${minWithdraw}.` };
+  }
+  if (amount > maxWithdraw) {
+    return {
+      ok: false,
+      error: `Maximum withdrawal per request is ₹${maxWithdraw.toLocaleString('en-IN')}.`,
+    };
+  }
+  if (amount > state.balance) {
+    return {
+      ok: false,
+      error: `Withdrawal exceeds available balance (₹${state.balance.toFixed(2)}).`,
+    };
+  }
+
+  const withdrawableCap = Math.min(state.balance, Math.max(0, state.withdrawableBalance ?? state.balance));
+  if (amount > withdrawableCap) {
+    return {
+      ok: false,
+      error: `Only winning amounts are withdrawable (Unlocked: ₹${withdrawableCap.toFixed(2)}). Play & win to unlock deposited funds.`,
+    };
+  }
+
+  const cleanAmount = Math.round(amount * 100) / 100;
+  const stamp = formatExactDateTime(nowMs);
+
+  const tx: WalletTransaction = {
+    id: `tx-wd-${nowMs}-${Math.random().toString(36).slice(2, 6)}`,
+    type: 'withdraw',
+    title,
+    amount: -cleanAmount,
+    timestamp: stamp,
+    status: 'In Process',
+    meta: `${meta} · Processing Payout`,
+    createdAtMs: nowMs,
+    userEmail: state.profile.email || undefined,
+    userName: state.profile.name,
+    userUid: state.profile.uid,
+    destinationSummary,
+    destinationCopyValue,
+  };
+
+  return {
+    ok: true,
+    channelLabel,
+    transaction: tx,
+    nextState: {
+      ...state,
+      balance: Math.round((state.balance - cleanAmount) * 100) / 100,
+      withdrawableBalance: Math.max(0, Math.round((withdrawableCap - cleanAmount) * 100) / 100),
+      transactions: [tx, ...state.transactions],
+      platformTransactions: [tx, ...(state.platformTransactions ?? [])].slice(0, 150),
+    },
+  };
+}
+
+export function sellUsdtToInr(
+  state: AppState,
+  usdtAmount: number,
+  nowMs = Date.now()
+): { ok: true; nextState: AppState; inrCredited: number } | { ok: false; error: string } {
+  if (!Number.isFinite(usdtAmount) || usdtAmount <= 0) {
+    return { ok: false, error: 'Enter a valid USDT amount to sell.' };
+  }
+  if (usdtAmount > state.usdtHoldings) {
+    return {
+      ok: false,
+      error: `Insufficient USDT balance (available ${state.usdtHoldings.toFixed(2)} USDT).`,
+    };
+  }
+  const inrCredited = Math.round(usdtAmount * state.usdtRateInr * 100) / 100;
+  const stamp = formatExactDateTime(nowMs);
+  return {
+    ok: true,
+    inrCredited,
+    nextState: {
+      ...state,
+      usdtHoldings: Math.round((state.usdtHoldings - usdtAmount) * 100) / 100,
+      balance: Math.round((state.balance + inrCredited) * 100) / 100,
+      withdrawableBalance: Math.round(((state.withdrawableBalance ?? 0) + inrCredited) * 100) / 100,
+      todayReceived: Math.round((state.todayReceived + inrCredited) * 100) / 100,
+      transactions: [
+        {
+          id: `tx-${nowMs}`,
+          type: 'sell_usdt',
+          title: `Sold ${usdtAmount.toFixed(2)} USDT @ ₹${state.usdtRateInr.toFixed(2)}`,
+          amount: inrCredited,
+          timestamp: stamp,
+          status: 'Credited',
+          meta: 'USDT/INR Desk',
+          createdAtMs: nowMs,
+        },
+        ...state.transactions,
+      ],
+    },
+  };
+}
+
+export function tickMarketPrices(assets: MarketAsset[], seedStep: number): MarketAsset[] {
+  return assets.map((asset, idx) => {
+    const wave = Math.sin(seedStep * 0.8 + idx * 1.7) * 0.0045 + Math.cos(seedStep * 0.3 + idx) * 0.002;
+    const nextPrice = Math.max(1, Math.round(asset.price * (1 + wave) * 100) / 100);
+    const nextChange = Math.round((asset.changePct + wave * 100) * 100) / 100;
+    const nextHistory = [...asset.history.slice(1), nextPrice];
+    return {
+      ...asset,
+      price: nextPrice,
+      changePct: nextChange,
+      history: nextHistory,
+    };
+  });
+}
+
+export interface CurrencyMeta {
+  code: BaseCurrency;
+  symbol: string;
+  name: string;
+  shortLabel: string;
+}
+
+export const SUPPORTED_CURRENCIES: CurrencyMeta[] = [
+  { code: 'INR', symbol: '₹', name: 'Indian Rupee', shortLabel: 'INR ₹' },
+  { code: 'USD', symbol: '$', name: 'US Dollar', shortLabel: 'USD $' },
+  { code: 'JPY', symbol: '¥', name: 'Japanese Yen', shortLabel: 'JPY ¥' },
+  { code: 'EUR', symbol: '€', name: 'Euro', shortLabel: 'EUR €' },
+  { code: 'GBP', symbol: '£', name: 'British Pound', shortLabel: 'GBP £' },
+  { code: 'AED', symbol: 'د.إ', name: 'UAE Dirham', shortLabel: 'AED' },
+  { code: 'SGD', symbol: 'S$', name: 'Singapore Dollar', shortLabel: 'SGD S$' },
+  { code: 'AUD', symbol: 'A$', name: 'Australian Dollar', shortLabel: 'AUD A$' },
+];
+
+export const DEFAULT_FX_RATES: FxRatesMap = {
+  INR: 1,
+  USD: 0.01183,
+  JPY: 1.825,
+  EUR: 0.01118,
+  GBP: 0.00934,
+  AED: 0.04345,
+  SGD: 0.01586,
+  AUD: 0.01816,
+};
+
+export function getCurrencyMeta(code: BaseCurrency): CurrencyMeta {
+  return SUPPORTED_CURRENCIES.find((c) => c.code === code) ?? SUPPORTED_CURRENCIES[0];
+}
+
+export function convertFromInr(
+  amountInInr: number,
+  targetCurrency: BaseCurrency,
+  fxRates?: Partial<FxRatesMap>
+): number {
+  const rate =
+    targetCurrency === 'INR'
+      ? 1
+      : fxRates?.[targetCurrency] ?? DEFAULT_FX_RATES[targetCurrency] ?? 1;
+  return amountInInr * rate;
+}
+
+export function convertCurrency(
+  amount: number,
+  from: BaseCurrency,
+  to: BaseCurrency,
+  fxRates?: Partial<FxRatesMap>
+): number {
+  if (!Number.isFinite(amount)) return 0;
+  if (from === to) return amount;
+  const fromRate = from === 'INR' ? 1 : fxRates?.[from] ?? DEFAULT_FX_RATES[from] ?? 1;
+  const toRate = to === 'INR' ? 1 : fxRates?.[to] ?? DEFAULT_FX_RATES[to] ?? 1;
+  if (fromRate <= 0) return 0;
+  const inInr = amount / fromRate;
+  return inInr * toRate;
+}
+
+export function tickFxRates(current: FxRatesMap, step: number): FxRatesMap {
+  const next: FxRatesMap = { ...current, INR: 1 };
+  const keys: BaseCurrency[] = ['USD', 'JPY', 'EUR', 'GBP', 'AED', 'SGD', 'AUD'];
+  keys.forEach((code, idx) => {
+    const base = current[code] ?? DEFAULT_FX_RATES[code];
+    const anchor = DEFAULT_FX_RATES[code];
+    const wave = Math.sin(step * 0.65 + idx * 1.3) * 0.0009;
+    const meanRevert = (anchor - base) * 0.12;
+    const updated = Math.max(anchor * 0.96, Math.min(anchor * 1.04, base * (1 + wave) + meanRevert));
+    next[code] = Number(updated.toFixed(6));
+  });
+  return next;
+}
+
+export function formatCurrency(
+  amountInInr: number,
+  currency: BaseCurrency,
+  fxRatesOrUsdRate?: number | Partial<FxRatesMap>
+): string {
+  const meta = getCurrencyMeta(currency);
+  let converted = amountInInr;
+  if (currency !== 'INR') {
+    if (typeof fxRatesOrUsdRate === 'number' && currency === 'USD') {
+      converted = amountInInr / fxRatesOrUsdRate;
+    } else if (fxRatesOrUsdRate && typeof fxRatesOrUsdRate === 'object') {
+      converted = convertFromInr(amountInInr, currency, fxRatesOrUsdRate);
+    } else {
+      converted = convertFromInr(amountInInr, currency, DEFAULT_FX_RATES);
+    }
+  }
+  const sign = converted < 0 ? '-' : '';
+  const abs = Math.abs(converted);
+  const useZeroDecimals = currency === 'JPY' && abs >= 100;
+  const symbolPrefix = currency === 'AED' ? 'AED ' : meta.symbol;
+  return `${sign}${symbolPrefix}${abs.toLocaleString('en-IN', {
+    minimumFractionDigits: useZeroDecimals ? 0 : 2,
+    maximumFractionDigits: useZeroDecimals ? 0 : 2,
+  })}`;
+}
+
+export const PLAYER_LEVELS: PlayerLevelDefinition[] = [
+  {
+    tier: 1,
+    name: 'New Player',
+    minSpent: 0,
+    accentColor: '#94a3b8',
+    perk: 'Standard UPI & Market Access',
+  },
+  {
+    tier: 2,
+    name: 'Normal',
+    minSpent: 500,
+    accentColor: '#38bdf8',
+    perk: 'Priority Settlement Queue',
+  },
+  {
+    tier: 3,
+    name: 'Ordinary',
+    minSpent: 2000,
+    accentColor: '#34d399',
+    perk: 'Lower Slippage Execution',
+  },
+  {
+    tier: 4,
+    name: 'Extraordinary',
+    minSpent: 5000,
+    accentColor: '#a78bfa',
+    perk: '0.2% Fee Rebate Credit',
+  },
+  {
+    tier: 5,
+    name: 'VIP',
+    minSpent: 15000,
+    accentColor: '#c084fc',
+    perk: 'VIP Liquidity Drop Access',
+  },
+  {
+    tier: 6,
+    name: 'VVIP',
+    minSpent: 35000,
+    accentColor: '#f472b6',
+    perk: 'Zero Handling Fee Desk',
+  },
+  {
+    tier: 7,
+    name: 'MVP',
+    minSpent: 75000,
+    accentColor: '#fbbf24',
+    perk: 'Dedicated Instant Clearing',
+  },
+  {
+    tier: 8,
+    name: 'Sovereign',
+    minSpent: 150000,
+    accentColor: '#f59e0b',
+    perk: 'Maximum Rank · Sovereign Vault',
+  },
+];
+
+export function calculateTotalSpent(
+  state: Pick<AppState, 'transactions'>
+): number {
+  const spent = state.transactions.reduce((sum, tx) => {
+    if (
+      tx.type === 'trade_open' ||
+      tx.type === 'bet_place' ||
+      (tx.type === 'trade_close' && tx.amount < 0)
+    ) {
+      return sum + Math.abs(tx.amount);
+    }
+    return sum;
+  }, 0);
+  return Math.round(spent * 100) / 100;
+}
+
+export function calculatePlayerLevel(totalSpentInr: number): PlayerLevelInfo {
+  const cleanSpent = Number.isFinite(totalSpentInr) && totalSpentInr > 0 ? totalSpentInr : 0;
+  let currentIdx = 0;
+  for (let i = PLAYER_LEVELS.length - 1; i >= 0; i--) {
+    if (cleanSpent >= PLAYER_LEVELS[i].minSpent) {
+      currentIdx = i;
+      break;
+    }
+  }
+  const current = PLAYER_LEVELS[currentIdx];
+  const next = currentIdx < PLAYER_LEVELS.length - 1 ? PLAYER_LEVELS[currentIdx + 1] : null;
+  if (!next) {
+    return {
+      current,
+      next: null,
+      totalSpent: cleanSpent,
+      progressPct: 100,
+      remainingToNext: 0,
+    };
+  }
+  const span = Math.max(1, next.minSpent - current.minSpent);
+  const progressRaw = ((cleanSpent - current.minSpent) / span) * 100;
+  const progressPct = Math.max(0, Math.min(100, Math.round(progressRaw * 10) / 10));
+  const remainingToNext = Math.max(0, Math.round((next.minSpent - cleanSpent) * 100) / 100);
+  return {
+    current,
+    next,
+    totalSpent: cleanSpent,
+    progressPct,
+    remainingToNext,
+  };
+}
+
+export function isOwnerAdmin(email?: string): boolean {
+  if (!email) return false;
+  return email.trim().toLowerCase() === ADMIN_OWNER_EMAIL;
+}
+
+export function getEffectiveReferralConfig(
+  state?: Pick<AppState, 'referralConfig'>
+): Required<ReferralConfig> {
+  const raw = state?.referralConfig;
+  return {
+    platformFeePct: Math.max(
+      0,
+      Number(raw?.platformFeePct ?? DEFAULT_REFERRAL_CONFIG.platformFeePct)
+    ),
+    minDepositInr: Math.max(
+      10,
+      Number(raw?.minDepositInr ?? DEFAULT_REFERRAL_CONFIG.minDepositInr)
+    ),
+    minWithdrawInr: Math.max(
+      10,
+      Number(raw?.minWithdrawInr ?? DEFAULT_REFERRAL_CONFIG.minWithdrawInr)
+    ),
+    referrerBonusInr: Math.max(
+      0,
+      Number(raw?.referrerBonusInr ?? DEFAULT_REFERRAL_CONFIG.referrerBonusInr)
+    ),
+    refereeBonusInr: Math.max(
+      0,
+      Number(raw?.refereeBonusInr ?? DEFAULT_REFERRAL_CONFIG.refereeBonusInr)
+    ),
+    maxReferralsPerUser: Math.max(
+      1,
+      Math.floor(
+        Number(raw?.maxReferralsPerUser ?? DEFAULT_REFERRAL_CONFIG.maxReferralsPerUser)
+      )
+    ),
+    referralBonusCapInr: Math.max(
+      0,
+      Number(raw?.referralBonusCapInr ?? DEFAULT_REFERRAL_CONFIG.referralBonusCapInr)
+    ),
+  };
+}
+
+export function generateReferralCode(
+  seedNameOrEmail: string,
+  existingCodes: Array<string | undefined> = []
+): string {
+  const used = new Set(
+    existingCodes
+      .filter((c): c is string => Boolean(c && c.trim()))
+      .map((c) => c.trim().toUpperCase())
+  );
+  const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const cleanSeed = seedNameOrEmail.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  let hash = 2166136261;
+  for (let i = 0; i < seedNameOrEmail.length; i++) {
+    hash ^= seedNameOrEmail.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const makeCandidate = (salt: number) => {
+    const prefix = (cleanSeed.slice(0, 2) || 'OB').padEnd(2, 'X');
+    let h = (hash ^ salt) >>> 0;
+    let suffix = '';
+    for (let i = 0; i < 4; i++) {
+      suffix += alphabet[h % alphabet.length];
+      h = Math.floor(h / alphabet.length) + (i + 7) * 13;
+    }
+    return `OURO-${prefix}${suffix}`;
+  };
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const code = makeCandidate(attempt * 7919);
+    if (!used.has(code)) return code;
+  }
+  return `OURO-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+}
+
+export function validateAndResolveReferralCode(
+  accounts: RegisteredAccount[] = [],
+  rawCode?: string,
+  selfEmail?: string
+):
+  | { ok: true; normalizedCode?: string; referrerEmail?: string; referrerName?: string }
+  | { ok: false; error: string } {
+  const trimmed = (rawCode ?? '').trim().toUpperCase();
+  if (!trimmed) return { ok: true, normalizedCode: undefined };
+  const referrer = accounts.find(
+    (acc) => (acc.referralCode ?? '').trim().toUpperCase() === trimmed
+  );
+  if (!referrer) {
+    return {
+      ok: false,
+      error: 'Invalid referral code. Check the invite code or leave blank.',
+    };
+  }
+  if (
+    selfEmail &&
+    referrer.email.trim().toLowerCase() === selfEmail.trim().toLowerCase()
+  ) {
+    return {
+      ok: false,
+      error: 'Self-referral is not allowed.',
+    };
+  }
+  if (referrer.banned) {
+    return {
+      ok: false,
+      error: 'This referral code belongs to a restricted account.',
+    };
+  }
+  return {
+    ok: true,
+    normalizedCode: trimmed,
+    referrerEmail: referrer.email,
+    referrerName: referrer.name,
+  };
+}
+
+export function applyReferralRewardOnFirstBet(
+  state: AppState,
+  nowMs = Date.now()
+): {
+  nextState: AppState;
+  awarded: boolean;
+  refereeBonus: number;
+  referrerBonus: number;
+} {
+  const cleanEmail = state.profile.email.trim().toLowerCase();
+  if (!cleanEmail) {
+    return { nextState: state, awarded: false, refereeBonus: 0, referrerBonus: 0 };
+  }
+  const accounts = state.registeredAccounts ?? [];
+  const refereeIdx = accounts.findIndex(
+    (a) => a.email.trim().toLowerCase() === cleanEmail
+  );
+  if (refereeIdx < 0) {
+    return { nextState: state, awarded: false, refereeBonus: 0, referrerBonus: 0 };
+  }
+  const refereeAcc = accounts[refereeIdx];
+  const refCode = (refereeAcc.referredByCode ?? '').trim().toUpperCase();
+  if (!refCode || refereeAcc.referralRewardSettled) {
+    return { nextState: state, awarded: false, refereeBonus: 0, referrerBonus: 0 };
+  }
+  const referrerIdx = accounts.findIndex(
+    (a) =>
+      (a.referralCode ?? '').trim().toUpperCase() === refCode &&
+      a.email.trim().toLowerCase() !== cleanEmail
+  );
+  if (referrerIdx < 0 || accounts[referrerIdx].banned) {
+    return { nextState: state, awarded: false, refereeBonus: 0, referrerBonus: 0 };
+  }
+
+  const referrerAcc = accounts[referrerIdx];
+  const cfg = getEffectiveReferralConfig(state);
+  const stamp = formatExactDateTime(nowMs);
+  const refereeBonus = roundMoney(Math.max(0, cfg.refereeBonusInr));
+
+  const currentRefCount = Math.max(0, referrerAcc.rewardedReferralsCount ?? 0);
+  const currentRefEarned = Math.max(0, referrerAcc.referralEarnedInr ?? 0);
+  const remainingCap = Math.max(0, roundMoney(cfg.referralBonusCapInr - currentRefEarned));
+  const underCountCap = currentRefCount < cfg.maxReferralsPerUser;
+  const referrerBonus =
+    underCountCap && remainingCap > 0
+      ? roundMoney(Math.min(cfg.referrerBonusInr, remainingCap))
+      : 0;
+
+  const refereeTx: WalletTransaction | null =
+    refereeBonus > 0
+      ? {
+          id: `tx-ref-ee-${nowMs}-${Math.random().toString(36).slice(2, 6)}`,
+          type: 'referral_bonus',
+          title: 'Referral Welcome Bonus',
+          amount: refereeBonus,
+          timestamp: stamp,
+          status: 'Credited',
+          meta: `First-bet bonus · Code ${refCode}`,
+          createdAtMs: nowMs,
+          credited: true,
+          userEmail: refereeAcc.email,
+          userName: refereeAcc.name,
+          userUid: refereeAcc.uid,
+        }
+      : null;
+
+  const referrerTx: WalletTransaction | null =
+    referrerBonus > 0
+      ? {
+          id: `tx-ref-er-${nowMs}-${Math.random().toString(36).slice(2, 6)}`,
+          type: 'referral_bonus',
+          title: `Invite Reward · ${refereeAcc.name || cleanEmail}`,
+          amount: referrerBonus,
+          timestamp: stamp,
+          status: 'Credited',
+          meta: `Capped referral ${currentRefCount + 1}/${cfg.maxReferralsPerUser}`,
+          createdAtMs: nowMs,
+          credited: true,
+          userEmail: referrerAcc.email,
+          userName: referrerAcc.name,
+          userUid: referrerAcc.uid,
+        }
+      : null;
+
+  const nextBalance = roundMoney(state.balance + refereeBonus);
+  const nextTodayReceived = roundMoney(state.todayReceived + refereeBonus);
+  const nextTransactions = refereeTx
+    ? [refereeTx, ...state.transactions]
+    : state.transactions;
+
+  const platformExtras = [refereeTx, referrerTx].filter(
+    (t): t is WalletTransaction => Boolean(t)
+  );
+  const nextPlatformTransactions = [
+    ...platformExtras,
+    ...(state.platformTransactions ?? []),
+  ].slice(0, 300);
+
+  const nextAccounts = accounts.map((acc, idx) => {
+    if (idx === refereeIdx) {
+      return {
+        ...acc,
+        balance: nextBalance,
+        todayReceived: nextTodayReceived,
+        referralRewardSettled: true,
+        transactions: nextTransactions,
+      };
+    }
+    if (idx === referrerIdx) {
+      return {
+        ...acc,
+        balance: roundMoney((acc.balance ?? 0) + referrerBonus),
+        todayReceived: roundMoney((acc.todayReceived ?? 0) + referrerBonus),
+        rewardedReferralsCount: currentRefCount + (referrerBonus > 0 ? 1 : 0),
+        referralEarnedInr: roundMoney(currentRefEarned + referrerBonus),
+        transactions: referrerTx
+          ? [referrerTx, ...(acc.transactions ?? [])]
+          : acc.transactions ?? [],
+      };
+    }
+    return acc;
+  });
+
+  return {
+    nextState: {
+      ...state,
+      balance: nextBalance,
+      todayReceived: nextTodayReceived,
+      transactions: nextTransactions,
+      platformTransactions: nextPlatformTransactions,
+      registeredAccounts: nextAccounts,
+    },
+    awarded: refereeBonus > 0 || referrerBonus > 0,
+    refereeBonus,
+    referrerBonus,
+  };
+}
+
+function roundMoney(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+export function adminVerifyAndCreditDeposit(
+  state: AppState,
+  txId: string,
+  nowMs = Date.now()
+):
+  | {
+      ok: true;
+      nextState: AppState;
+      targetEmail: string;
+      creditedAmount: number;
+    }
+  | { ok: false; error: string } {
+  const pool = [...(state.platformTransactions ?? []), ...state.transactions];
+  const tx = pool.find((t) => t.id === txId && t.type === 'deposit');
+  if (!tx) {
+    return { ok: false, error: 'Deposit request not found.' };
+  }
+  if (tx.credited || tx.status === 'Credited' || tx.status === 'Completed') {
+    return { ok: false, error: 'This deposit has already been verified and credited.' };
+  }
+  if (tx.status === 'Rejected') {
+    return { ok: false, error: 'Cannot credit a rejected deposit.' };
+  }
+
+  const targetEmail = (tx.userEmail ?? state.profile.email).trim().toLowerCase();
+  const isCurrentSession =
+    state.profile.email.trim().toLowerCase() === targetEmail;
+  const amount = roundMoney(Math.max(0, tx.amount));
+  const updatedMeta = tx.utr
+    ? `UTR ${tx.utr} · Verified & Credited`
+    : 'Verified & Credited by Owner';
+
+  const patchTx = (list: WalletTransaction[]) =>
+    list.map((item) =>
+      item.id === txId
+        ? { ...item, status: 'Credited' as const, credited: true, meta: updatedMeta }
+        : item
+    );
+
+  const nextRegistered = (state.registeredAccounts ?? []).map((acc) => {
+    if (acc.email.trim().toLowerCase() !== targetEmail) return acc;
+    return {
+      ...acc,
+      balance: roundMoney((acc.balance ?? 0) + amount),
+      todayReceived: roundMoney((acc.todayReceived ?? 0) + amount),
+      totalDepositedInr: roundMoney((acc.totalDepositedInr ?? 0) + amount),
+      transactions: patchTx(acc.transactions ?? []),
+    };
+  });
+
+  const channelLabel = tx.title.replace(/\s*Top Up$/i, '').trim() || 'UPI Gateway';
+  const pendingAnim: PendingTransferAnimation | null = targetEmail
+    ? {
+        id: `ptx-dep-${txId}-${nowMs}`,
+        targetEmail,
+        direction: 'deposit',
+        amountInr: amount,
+        channelLabel,
+        createdAtMs: nowMs,
+      }
+    : null;
+
+  const baseState: AppState = {
+    ...state,
+    balance: isCurrentSession ? roundMoney(state.balance + amount) : state.balance,
+    todayReceived: isCurrentSession
+      ? roundMoney(state.todayReceived + amount)
+      : state.todayReceived,
+    transactions: patchTx(state.transactions),
+    platformTransactions: patchTx(state.platformTransactions ?? []),
+    registeredAccounts: nextRegistered,
+    pendingTransferAnimations: pendingAnim
+      ? [...(state.pendingTransferAnimations ?? []), pendingAnim]
+      : state.pendingTransferAnimations,
+  };
+
+  return {
+    ok: true,
+    nextState: baseState,
+    targetEmail,
+    creditedAmount: amount,
+  };
+}
+
+export function adminRejectDeposit(
+  state: AppState,
+  txId: string,
+  reason = 'UTR mismatch or payment not received'
+): { ok: true; nextState: AppState; targetEmail: string } | { ok: false; error: string } {
+  const pool = [...(state.platformTransactions ?? []), ...state.transactions];
+  const tx = pool.find((t) => t.id === txId && t.type === 'deposit');
+  if (!tx) return { ok: false, error: 'Deposit request not found.' };
+  if (tx.credited || tx.status === 'Credited' || tx.status === 'Completed') {
+    return { ok: false, error: 'Already credited deposit cannot be rejected.' };
+  }
+
+  const cleanReason = reason.trim() || 'UTR verification failed';
+  const targetEmail = (tx.userEmail ?? state.profile.email).trim().toLowerCase();
+  const updatedMeta = tx.utr
+    ? `UTR ${tx.utr} · Rejected: ${cleanReason}`
+    : `Rejected: ${cleanReason}`;
+
+  const patchTx = (list: WalletTransaction[]) =>
+    list.map((item) =>
+      item.id === txId
+        ? {
+            ...item,
+            status: 'Rejected' as const,
+            credited: false,
+            rejectionReason: cleanReason,
+            meta: updatedMeta,
+          }
+        : item
+    );
+
+  return {
+    ok: true,
+    targetEmail,
+    nextState: {
+      ...state,
+      transactions: patchTx(state.transactions),
+      platformTransactions: patchTx(state.platformTransactions ?? []),
+      registeredAccounts: (state.registeredAccounts ?? []).map((acc) =>
+        acc.email.trim().toLowerCase() === targetEmail
+          ? { ...acc, transactions: patchTx(acc.transactions ?? []) }
+          : acc
+      ),
+    },
+  };
+}
+
+export function adminApproveWithdrawal(
+  state: AppState,
+  txId: string,
+  nowMs = Date.now()
+): { ok: true; nextState: AppState; targetEmail: string; amount: number } | { ok: false; error: string } {
+  const pool = [...(state.platformTransactions ?? []), ...state.transactions];
+  const tx = pool.find((t) => t.id === txId && t.type === 'withdraw');
+  if (!tx) return { ok: false, error: 'Withdrawal request not found.' };
+  if (tx.status === 'Completed') return { ok: false, error: 'Withdrawal already completed.' };
+  if (tx.status === 'Rejected') return { ok: false, error: 'Rejected withdrawal cannot be approved.' };
+
+  const targetEmail = (tx.userEmail ?? state.profile.email).trim().toLowerCase();
+  const payoutAmount = roundMoney(Math.abs(tx.amount));
+  const updatedMeta = `${tx.destinationSummary ?? tx.meta ?? 'Payout'} · Paid & Completed`;
+
+  const patchTx = (list: WalletTransaction[]) =>
+    list.map((item) =>
+      item.id === txId
+        ? { ...item, status: 'Completed' as const, meta: updatedMeta }
+        : item
+    );
+
+  const channelLabel = tx.destinationSummary || tx.title.replace(/^Withdraw to\s*/i, '').trim() || 'Bank / UPI';
+  const pendingAnim: PendingTransferAnimation | null = targetEmail
+    ? {
+        id: `ptx-wd-${txId}-${nowMs}`,
+        targetEmail,
+        direction: 'withdraw',
+        amountInr: payoutAmount,
+        channelLabel,
+        createdAtMs: nowMs,
+      }
+    : null;
+
+  return {
+    ok: true,
+    targetEmail,
+    amount: payoutAmount,
+    nextState: {
+      ...state,
+      transactions: patchTx(state.transactions),
+      platformTransactions: patchTx(state.platformTransactions ?? []),
+      pendingTransferAnimations: pendingAnim
+        ? [...(state.pendingTransferAnimations ?? []), pendingAnim]
+        : state.pendingTransferAnimations,
+      registeredAccounts: (state.registeredAccounts ?? []).map((acc) =>
+        acc.email.trim().toLowerCase() === targetEmail
+          ? {
+              ...acc,
+              totalWithdrawnInr: roundMoney((acc.totalWithdrawnInr ?? 0) + payoutAmount),
+              transactions: patchTx(acc.transactions ?? []),
+            }
+          : acc
+      ),
+    },
+  };
+}
+
+export function adminRejectAndRefundWithdrawal(
+  state: AppState,
+  txId: string,
+  reason = 'Invalid bank/UPI details',
+  nowMs = Date.now()
+): { ok: true; nextState: AppState; targetEmail: string; refundedAmount: number } | { ok: false; error: string } {
+  const pool = [...(state.platformTransactions ?? []), ...state.transactions];
+  const tx = pool.find((t) => t.id === txId && t.type === 'withdraw');
+  if (!tx) return { ok: false, error: 'Withdrawal request not found.' };
+  if (tx.status === 'Completed') return { ok: false, error: 'Already completed withdrawal cannot be rejected.' };
+  if (tx.status === 'Rejected') return { ok: false, error: 'Withdrawal was already rejected and refunded.' };
+
+  const cleanReason = reason.trim() || 'Rejected by Owner Desk';
+  const targetEmail = (tx.userEmail ?? state.profile.email).trim().toLowerCase();
+  const isCurrentSession =
+    state.profile.email.trim().toLowerCase() === targetEmail;
+  const refundAmount = roundMoney(Math.abs(tx.amount));
+  const updatedMeta = `Rejected & Refunded (${cleanReason})`;
+
+  const patchTx = (list: WalletTransaction[]) =>
+    list.map((item) =>
+      item.id === txId
+        ? {
+            ...item,
+            status: 'Rejected' as const,
+            rejectionReason: cleanReason,
+            meta: updatedMeta,
+          }
+        : item
+    );
+
+  const refundTx: WalletTransaction = {
+    id: `tx-refwd-${nowMs}-${Math.random().toString(36).slice(2, 5)}`,
+    type: 'trade_refund',
+    title: `Withdrawal Refund (${cleanReason})`,
+    amount: refundAmount,
+    timestamp: formatExactDateTime(nowMs),
+    status: 'Credited',
+    meta: 'Refunded to withdrawable winnings',
+    createdAtMs: nowMs,
+    userEmail: targetEmail || undefined,
+    userName: tx.userName,
+    userUid: tx.userUid,
+  };
+
+  return {
+    ok: true,
+    targetEmail,
+    refundedAmount: refundAmount,
+    nextState: {
+      ...state,
+      balance: isCurrentSession ? roundMoney(state.balance + refundAmount) : state.balance,
+      withdrawableBalance: isCurrentSession
+        ? roundMoney((state.withdrawableBalance ?? 0) + refundAmount)
+        : state.withdrawableBalance,
+      transactions: isCurrentSession
+        ? [refundTx, ...patchTx(state.transactions)]
+        : patchTx(state.transactions),
+      platformTransactions: patchTx(state.platformTransactions ?? []),
+      registeredAccounts: (state.registeredAccounts ?? []).map((acc) =>
+        acc.email.trim().toLowerCase() === targetEmail
+          ? {
+              ...acc,
+              balance: roundMoney((acc.balance ?? 0) + refundAmount),
+              withdrawableBalance: roundMoney(
+                (acc.withdrawableBalance ?? 0) + refundAmount
+              ),
+              transactions: [refundTx, ...patchTx(acc.transactions ?? [])],
+            }
+          : acc
+      ),
+    },
+  };
+}
+
+export function consumePendingTransferForUser(
+  state: AppState,
+  userEmail: string
+): { nextState: AppState; transfer: PendingTransferAnimation | null } {
+  const cleanEmail = userEmail.trim().toLowerCase();
+  if (!cleanEmail) return { nextState: state, transfer: null };
+  const queue = state.pendingTransferAnimations ?? [];
+  const idx = queue.findIndex(
+    (item) => item.targetEmail.trim().toLowerCase() === cleanEmail
+  );
+  if (idx < 0) return { nextState: state, transfer: null };
+  const transfer = queue[idx];
+  return {
+    transfer,
+    nextState: {
+      ...state,
+      pendingTransferAnimations: queue.filter((_, i) => i !== idx),
+    },
+  };
+}
+
+export interface AdminPlatformSummary {
+  ownerFeeRevenue: number;
+  verifiedDepositsTotalInr: number;
+  verifiedDepositsCount: number;
+  pendingDepositsTotalInr: number;
+  pendingDepositsCount: number;
+  completedWithdrawalsTotalInr: number;
+  completedWithdrawalsCount: number;
+  pendingWithdrawalsTotalInr: number;
+  pendingWithdrawalsCount: number;
+  netPlatformFloatInr: number;
+  totalUserWalletHoldingsInr: number;
+  totalUsersCount: number;
+  activeUsersCount: number;
+  frozenUsersCount: number;
+  bannedUsersCount: number;
+}
+
+export function computeAdminPlatformSummary(state: AppState): AdminPlatformSummary {
+  const txMap = new Map<string, WalletTransaction>();
+  for (const tx of state.platformTransactions ?? []) {
+    txMap.set(tx.id, tx);
+  }
+  for (const tx of state.transactions) {
+    if (!txMap.has(tx.id)) txMap.set(tx.id, tx);
+  }
+
+  let verifiedDepositsTotalInr = 0;
+  let verifiedDepositsCount = 0;
+  let pendingDepositsTotalInr = 0;
+  let pendingDepositsCount = 0;
+  let completedWithdrawalsTotalInr = 0;
+  let completedWithdrawalsCount = 0;
+  let pendingWithdrawalsTotalInr = 0;
+  let pendingWithdrawalsCount = 0;
+
+  for (const tx of txMap.values()) {
+    if (tx.type === 'deposit') {
+      if (tx.credited || tx.status === 'Credited' || tx.status === 'Completed') {
+        verifiedDepositsTotalInr += Math.max(0, tx.amount);
+        verifiedDepositsCount += 1;
+      } else if (tx.status !== 'Rejected') {
+        pendingDepositsTotalInr += Math.max(0, tx.amount);
+        pendingDepositsCount += 1;
+      }
+    } else if (tx.type === 'withdraw') {
+      const absAmt = Math.abs(tx.amount);
+      if (tx.status === 'Completed') {
+        completedWithdrawalsTotalInr += absAmt;
+        completedWithdrawalsCount += 1;
+      } else if (tx.status === 'In Process' || tx.status === 'Under Review') {
+        pendingWithdrawalsTotalInr += absAmt;
+        pendingWithdrawalsCount += 1;
+      }
+    }
+  }
+
+  const accounts = state.registeredAccounts ?? [];
+  const activeEmail = state.profile.email.trim().toLowerCase();
+  let totalUserWalletHoldingsInr = 0;
+  let activeUsersCount = 0;
+  let frozenUsersCount = 0;
+  let bannedUsersCount = 0;
+
+  for (const acc of accounts) {
+    const isCurr =
+      Boolean(state.isAuthenticated) &&
+      acc.email.trim().toLowerCase() === activeEmail;
+    totalUserWalletHoldingsInr += isCurr ? state.balance : acc.balance ?? 0;
+    if (acc.banned) bannedUsersCount += 1;
+    else if (acc.frozen) frozenUsersCount += 1;
+    else activeUsersCount += 1;
+  }
+
+  return {
+    ownerFeeRevenue: roundMoney(state.ownerFeeRevenue ?? 0),
+    verifiedDepositsTotalInr: roundMoney(verifiedDepositsTotalInr),
+    verifiedDepositsCount,
+    pendingDepositsTotalInr: roundMoney(pendingDepositsTotalInr),
+    pendingDepositsCount,
+    completedWithdrawalsTotalInr: roundMoney(completedWithdrawalsTotalInr),
+    completedWithdrawalsCount,
+    pendingWithdrawalsTotalInr: roundMoney(pendingWithdrawalsTotalInr),
+    pendingWithdrawalsCount,
+    netPlatformFloatInr: roundMoney(verifiedDepositsTotalInr - completedWithdrawalsTotalInr),
+    totalUserWalletHoldingsInr: roundMoney(totalUserWalletHoldingsInr),
+    totalUsersCount: accounts.length,
+    activeUsersCount,
+    frozenUsersCount,
+    bannedUsersCount,
+  };
+}
+
+export interface GameWalletTxParams {
+  txId?: string;
+  gameId: string;
+  gameTitle: string;
+  kind: 'bet' | 'win' | 'refund';
+  amountInr: number;
+  meta?: string;
+}
+
+export function applyGameWalletTransaction(
+  state: AppState,
+  params: GameWalletTxParams,
+  nowMs = Date.now()
+): { ok: true; nextState: AppState; tx: WalletTransaction } | { ok: false; error: string } {
+  const amount = roundMoney(params.amountInr);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, error: 'Invalid game transaction amount.' };
+  }
+
+  const txId =
+    params.txId?.trim() ||
+    `gtx-${nowMs}-${Math.random().toString(36).slice(2, 7)}`;
+
+  // Idempotency guard against duplicate bridge messages
+  const existingTx = state.transactions.find((t) => t.id === txId);
+  if (existingTx) {
+    return { ok: true, nextState: state, tx: existingTx };
+  }
+
+  if (params.kind === 'bet') {
+    const restriction = getCurrentUserRestriction(state);
+    if (restriction.restricted) {
+      return {
+        ok: false,
+        error: `${restriction.banned ? 'Account banned' : 'Account is currently frozen'}${
+          restriction.reason ? `: ${restriction.reason}` : '. Contact Admin support.'
+        }`,
+      };
+    }
+    if (restriction.tradingBlocked) {
+      return {
+        ok: false,
+        error: 'Gaming & trading is temporarily paused on your account.',
+      };
+    }
+    if (amount > state.balance) {
+      return {
+        ok: false,
+        error: `Insufficient wallet balance. Need ₹${amount.toFixed(2)}, available ₹${state.balance.toFixed(2)}.`,
+      };
+    }
+  }
+
+  const cleanEmail = state.profile.email.trim().toLowerCase();
+  const cleanName = state.profile.name.trim() || cleanEmail || 'Trader';
+  const cleanUid = state.profile.uid;
+  const stamp = formatExactDateTime(nowMs);
+
+  let nextBalance = state.balance;
+  let nextWithdrawable = Math.min(
+    state.balance,
+    Math.max(0, state.withdrawableBalance ?? state.balance)
+  );
+  let nextRealizedPnl = state.realizedPnl;
+  let nextTodayReceived = state.todayReceived;
+
+  if (params.kind === 'bet') {
+    const debit = computeDebitBreakdown(state.balance, nextWithdrawable, amount);
+    nextBalance = debit.nextBalance;
+    nextWithdrawable = debit.nextWithdrawable;
+    nextRealizedPnl = roundMoney(state.realizedPnl - amount);
+  } else if (params.kind === 'win') {
+    nextBalance = roundMoney(state.balance + amount);
+    nextWithdrawable = Math.min(nextBalance, roundMoney(nextWithdrawable + amount));
+    nextRealizedPnl = roundMoney(state.realizedPnl + amount);
+    nextTodayReceived = roundMoney(state.todayReceived + amount);
+  } else {
+    // refund
+    nextBalance = roundMoney(state.balance + amount);
+    nextWithdrawable = Math.min(nextBalance, roundMoney(nextWithdrawable + amount));
+    nextRealizedPnl = roundMoney(state.realizedPnl + amount);
+  }
+
+  const txType: WalletTransaction['type'] =
+    params.kind === 'bet'
+      ? 'game_bet'
+      : params.kind === 'win'
+      ? 'game_win'
+      : 'game_refund';
+
+  const txTitle =
+    params.kind === 'bet'
+      ? `${params.gameTitle} Stake`
+      : params.kind === 'win'
+      ? `${params.gameTitle} Payout`
+      : `${params.gameTitle} Refund`;
+
+  const tx: WalletTransaction = {
+    id: txId,
+    type: txType,
+    title: txTitle,
+    amount: params.kind === 'bet' ? -amount : amount,
+    timestamp: stamp,
+    status:
+      params.kind === 'refund'
+        ? 'Cancelled/Refunded'
+        : params.kind === 'win'
+        ? 'Settled'
+        : 'Completed',
+    meta: params.meta?.trim() || params.gameId,
+    createdAtMs: nowMs,
+    userEmail: cleanEmail || undefined,
+    userName: cleanName,
+    userUid: cleanUid,
+  };
+
+  const nextTransactions = [tx, ...state.transactions];
+  const nextPlatformTransactions = [tx, ...(state.platformTransactions ?? [])].slice(0, 300);
+
+  const nextRegistered = (state.registeredAccounts ?? []).map((acc) => {
+    if (cleanEmail && acc.email.trim().toLowerCase() === cleanEmail) {
+      return {
+        ...acc,
+        balance: nextBalance,
+        withdrawableBalance: nextWithdrawable,
+        realizedPnl: nextRealizedPnl,
+        todayReceived: nextTodayReceived,
+        transactions: nextTransactions,
+      };
+    }
+    return acc;
+  });
+
+  const baseState: AppState = {
+    ...state,
+    balance: nextBalance,
+    withdrawableBalance: nextWithdrawable,
+    realizedPnl: nextRealizedPnl,
+    todayReceived: nextTodayReceived,
+    transactions: nextTransactions,
+    platformTransactions: nextPlatformTransactions,
+    registeredAccounts: nextRegistered,
+  };
+
+  const nextState =
+    params.kind === 'bet'
+      ? applyReferralRewardOnFirstBet(baseState, nowMs).nextState
+      : baseState;
+
+  return { ok: true, nextState, tx };
+}
+
+

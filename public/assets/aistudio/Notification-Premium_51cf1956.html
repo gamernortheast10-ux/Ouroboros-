@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Ouroboros — Premium Notifications</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --card: #14141f;
+  --card2: #1a1a27;
+  --border: rgba(255,255,255,0.07);
+  --text: #f0f0f5;
+  --text2: #8b8ba0;
+  --purple: #7c5cfc;
+  --purple2: #9b7dff;
+  --green: #22c55e;
+  --red: #ef4444;
+  --orange: #f97316;
+  --blue: #3b82f6;
+  --yellow: #eab308;
+  --cyan: #06b6d4;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Floating Bell */
+.n-bell {
+  position: fixed;
+  bottom: 28px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #8b6fff, #5b3fd9);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 30px rgba(124,92,252,0.45), 0 0 0 1px rgba(255,255,255,0.08) inset;
+  z-index: 9990;
+  cursor: pointer;
+  border: none;
+  transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1);
+}
+.n-bell:active { transform: scale(0.92); }
+.n-bell svg { width: 23px; height: 23px; }
+
+.n-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 20px;
+  height: 20px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border-radius: 999px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border: 2.5px solid var(--bg);
+  box-shadow: 0 2px 8px rgba(239,68,68,0.4);
+}
+
+/* Overlay */
+.n-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 9998;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.3s;
+}
+.n-overlay.open { opacity: 1; pointer-events: auto; }
+
+.n-panel {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  max-width: 480px; margin: 0 auto;
+  background: #111118;
+  border-radius: 24px 24px 0 0;
+  max-height: 86vh;
+  display: flex; flex-direction: column;
+  transform: translateY(105%);
+  transition: transform 0.42s cubic-bezier(0.16,1,0.3,1);
+  z-index: 9999;
+  box-shadow: 0 -10px 40px rgba(0,0,0,0.4);
+}
+.n-overlay.open .n-panel { transform: translateY(0); }
+
+.n-handle {
+  width: 36px; height: 4px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 2px;
+  margin: 12px auto 6px;
+}
+
+.n-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 18px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.n-header h2 {
+  font-size: 1.12rem; font-weight: 700; color: var(--text); letter-spacing: -0.3px;
+}
+.n-actions { display: flex; gap: 8px; }
+.n-btn {
+  background: var(--card2);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  font-size: 0.73rem; font-weight: 600;
+  padding: 6px 12px; border-radius: 999px; cursor: pointer;
+  transition: background 0.15s;
+}
+.n-btn:active { background: #22222f; }
+.n-btn.danger { color: #f87171; border-color: rgba(239,68,68,0.25); }
+
+.n-list {
+  flex: 1; overflow-y: auto;
+  padding: 12px 12px 32px;
+  -webkit-overflow-scrolling: touch;
+}
+.n-empty {
+  text-align: center; padding: 56px 24px; color: var(--text2); font-size: 0.9rem;
+}
+
+/* ========== PREMIUM NOTIFICATION CARD ========== */
+.n-item {
+  position: relative;
+  margin-bottom: 10px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--card);
+  touch-action: pan-y;
+  user-select: none;
+  animation: nIn 0.38s cubic-bezier(0.16,1,0.3,1) both;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+}
+@keyframes nIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.n-item.unread::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3.5px; border-radius: 18px 0 0 18px; z-index: 3;
+}
+.n-item.unread.success::before { background: var(--green); }
+.n-item.unread.error::before   { background: var(--red); }
+.n-item.unread.warning::before { background: var(--orange); }
+.n-item.unread.info::before    { background: var(--purple); }
+.n-item.unread.news::before    { background: var(--blue); }
+.n-item.unread.money::before   { background: var(--yellow); }
+.n-item.unread.cyan::before    { background: var(--cyan); }
+
+.n-inner {
+  display: flex; gap: 14px; padding: 15px 14px;
+  position: relative; z-index: 2;
+  background: var(--card);
+  transition: transform 0.28s cubic-bezier(0.22,1,0.36,1);
+  border-radius: 18px;
+}
+.n-item.unread .n-inner {
+  background: linear-gradient(90deg, rgba(124,92,252,0.05) 0%, var(--card) 60%);
+}
+.n-item.swiping .n-inner { transition: none; }
+.n-item.removing {
+  transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+  opacity: 0; transform: translateX(110%) scale(0.94);
+  height: 0 !important; margin: 0 !important; padding: 0 !important;
+}
+
+.n-swipe-bg {
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent 30%, #dc2626);
+  display: flex; align-items: center; justify-content: flex-end;
+  padding-right: 22px; color: #fff; font-weight: 600; font-size: 0.8rem;
+  z-index: 1; opacity: 0; transition: opacity 0.2s; border-radius: 18px;
+}
+.n-item.swiping .n-swipe-bg { opacity: 1; }
+
+/* Premium Icon */
+.n-icon {
+  width: 44px; height: 44px; border-radius: 13px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.n-icon svg { width: 20px; height: 20px; }
+.n-icon.success { background: rgba(34,197,94,0.14); color: #22c55e; }
+.n-icon.error   { background: rgba(239,68,68,0.14); color: #ef4444; }
+.n-icon.warning { background: rgba(249,115,22,0.14); color: #f97316; }
+.n-icon.info    { background: rgba(124,92,252,0.14); color: #9b7dff; }
+.n-icon.news    { background: rgba(59,130,246,0.14); color: #3b82f6; }
+.n-icon.money   { background: rgba(234,179,8,0.14); color: #eab308; }
+.n-icon.cyan    { background: rgba(6,182,212,0.14); color: #06b6d4; }
+
+.n-body { flex: 1; min-width: 0; }
+.n-title {
+  font-weight: 650; font-size: 0.92rem; color: var(--text);
+  margin-bottom: 3px; letter-spacing: -0.2px;
+  display: flex; align-items: center; gap: 7px;
+}
+.n-dot {
+  width: 6.5px; height: 6.5px; border-radius: 50%;
+  background: var(--purple); flex-shrink: 0;
+  box-shadow: 0 0 6px rgba(124,92,252,0.6);
+}
+.n-msg {
+  font-size: 0.8rem; color: var(--text2); line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.n-meta {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 8px;
+}
+.n-time {
+  font-size: 0.7rem; color: var(--text2); opacity: 0.75; font-weight: 500;
+}
+.n-go {
+  font-size: 0.7rem; font-weight: 600; color: var(--purple2);
+  background: rgba(124,92,252,0.12);
+  padding: 3px 10px; border-radius: 999px;
+  letter-spacing: 0.2px;
+}
+
+/* Toast */
+.n-toast {
+  position: fixed; bottom: 100px; left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--card2); border: 1px solid var(--border);
+  color: var(--text); padding: 11px 18px; border-radius: 14px;
+  font-weight: 600; font-size: 0.84rem; z-index: 10000;
+  transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+}
+.n-toast.show { transform: translateX(-50%) translateY(0); }
+
+/* Demo triggers (remove in production) */
+.demo {
+  padding: 24px 16px;
+  max-width: 480px; margin: 0 auto;
+}
+.demo h3 {
+  font-size: 0.8rem; color: var(--text2); font-weight: 600;
+  margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.demo-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.demo-btn {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 13px 12px; color: var(--text);
+  font-weight: 600; font-size: 0.8rem; cursor: pointer; text-align: left;
+}
+.demo-btn small { display: block; font-size: 0.68rem; color: var(--text2); font-weight: 400; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<div class="demo">
+  <h3>Trigger Premium Notifications</h3>
+  <div class="demo-grid">
+    <button class="demo-btn" onclick="N.push('deposit_ok')">Deposit Success<small>Professional icon</small></button>
+    <button class="demo-btn" onclick="N.push('news')">Market News<small>Professional icon</small></button>
+    <button class="demo-btn" onclick="N.push('trade_win')">Trade Won<small>Professional icon</small></button>
+    <button class="demo-btn" onclick="N.push('withdraw_ok')">Withdrawal Success</button>
+    <button class="demo-btn" onclick="N.push('deposit_fail')">Deposit Rejected</button>
+    <button class="demo-btn" onclick="N.push('price')">Price Alert</button>
+    <button class="demo-btn" onclick="N.push('bet_ok')">Bet Confirmed</button>
+    <button class="demo-btn" onclick="N.push('refund')">Money Refund</button>
+  </div>
+</div>
+
+<!-- Notification Button -->
+<button class="n-bell" id="nBell" onclick="N.open()">
+  <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+  </svg>
+  <span class="n-badge" id="nBadge">0</span>
+</button>
+
+<!-- Panel -->
+<div class="n-overlay" id="nOverlay" onclick="N.close(event)">
+  <div class="n-panel" onclick="event.stopPropagation()">
+    <div class="n-handle"></div>
+    <div class="n-header">
+      <h2>Notifications</h2>
+      <div class="n-actions">
+        <button class="n-btn" onclick="N.markAll()">Mark read</button>
+        <button class="n-btn danger" onclick="N.clearAll()">Clear all</button>
+      </div>
+    </div>
+    <div class="n-list" id="nList"></div>
+  </div>
+</div>
+
+<div class="n-toast" id="nToast"></div>
+
+<script>
+/* ========== PREMIUM SVG ICONS (no emojis) ========== */
+const ICONS = {
+  // Down arrow (Deposit)
+  deposit: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>`,
+  // Up arrow (Withdrawal)
+  withdraw: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>`,
+  // Check circle (Success / Confirm)
+  check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>`,
+  // X circle (Error / Reject)
+  close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>`,
+  // Clock (Pending)
+  clock: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>`,
+  // Document / News
+  news: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>`,
+  // Trending up (Trade Win)
+  win: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>`,
+  // Chart / Trade
+  trade: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/></svg>`,
+  // Refresh / Refund
+  refund: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>`,
+  // Bell (Price Alert)
+  alert: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`,
+  // Settings (System)
+  system: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`
+};
+
+const TPL = {
+  deposit_ok:      { title: 'Deposit Successful', msg: '₹2,000 credited to your wallet.', icon: 'deposit', style: 'success', sound: 'success', route: 'wallet' },
+  deposit_pending: { title: 'Deposit Pending', msg: '₹1,500 is being processed. Usually 1–5 min.', icon: 'clock', style: 'warning', sound: 'warning', route: 'wallet' },
+  deposit_fail:    { title: 'Deposit Rejected', msg: 'Payment failed. Please try another method.', icon: 'close', style: 'error', sound: 'error', route: 'wallet' },
+  withdraw_ok:     { title: 'Withdrawal Successful', msg: '₹3,000 sent to bank account ••4821.', icon: 'withdraw', style: 'success', sound: 'success', route: 'wallet' },
+  withdraw_pending:{ title: 'Withdrawal Pending', msg: '₹1,200 under review. ETA ~30 minutes.', icon: 'clock', style: 'warning', sound: 'warning', route: 'wallet' },
+  withdraw_fail:   { title: 'Withdrawal Rejected', msg: 'Insufficient balance or KYC pending.', icon: 'close', style: 'error', sound: 'error', route: 'wallet' },
+  bet_ok:          { title: 'Bet Confirmed', msg: 'YES bet of ₹500 on GTA VI sales placed.', icon: 'check', style: 'success', sound: 'success', route: 'markets' },
+  bet_fail:        { title: 'Bet Rejected', msg: 'Pool closed. Your amount has been refunded.', icon: 'close', style: 'error', sound: 'error', route: 'markets' },
+  trade_ok:        { title: 'Trade Confirmed', msg: 'Long position on APPLE @ 267.92 opened.', icon: 'trade', style: 'info', sound: 'info', route: 'trade' },
+  trade_win:       { title: 'Trade Won', msg: 'Profit +₹186 on APPLE short trade.', icon: 'win', style: 'money', sound: 'win', route: 'portfolio' },
+  refund:          { title: 'Money Refunded', msg: '₹500 has been returned to your wallet.', icon: 'refund', style: 'cyan', sound: 'money', route: 'wallet' },
+  news:            { title: 'New Market News', msg: 'Apple India manufacturing scales up – Bullish.', icon: 'news', style: 'news', sound: 'news', route: 'news' },
+  price:           { title: 'Price Alert', msg: 'APPLE reached your target price of ₹269.34.', icon: 'alert', style: 'warning', sound: 'warning', route: 'trade' },
+  system:          { title: 'System Notice', msg: 'Scheduled maintenance tonight 2:00–3:00 AM IST.', icon: 'system', style: 'info', sound: 'system', route: 'system' }
+};
+
+const N = (function() {
+  let ctx = null;
+  function audio() { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); return ctx; }
+  function tone(f, type, dur, vol=0.11, delay=0) {
+    try {
+      const a = audio(); const o = a.createOscillator(); const g = a.createGain();
+      o.type = type; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, a.currentTime + delay);
+      g.gain.exponentialRampToValueAtTime(vol, a.currentTime + delay + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + delay + dur);
+      o.connect(g); g.connect(a.destination);
+      o.start(a.currentTime + delay); o.stop(a.currentTime + delay + dur + 0.05);
+    } catch(e){}
+  }
+  const SOUNDS = {
+    success: () => { tone(784,'sine',0.1); tone(1046,'sine',0.16,0.1,0.09); },
+    error:   () => { tone(200,'sawtooth',0.22,0.09); tone(160,'sawtooth',0.28,0.07,0.14); },
+    warning: () => { tone(466,'triangle',0.12); tone(466,'triangle',0.12,0.09,0.18); },
+    info:    () => { tone(659,'sine',0.18); },
+    news:    () => { tone(523,'sine',0.08); tone(659,'sine',0.08,0.08,0.08); tone(784,'sine',0.14,0.08,0.16); },
+    money:   () => { tone(880,'sine',0.08); tone(1174,'sine',0.1,0.09,0.07); tone(1396,'sine',0.16,0.08,0.14); },
+    win:     () => { tone(659,'sine',0.08); tone(784,'sine',0.08,0.09,0.07); tone(1046,'sine',0.2,0.1,0.14); },
+    system:  () => { tone(392,'triangle',0.28,0.08); }
+  };
+
+  let list = [];
+  let idc = 1;
+
+  function push(key) {
+    const t = TPL[key];
+    if (!t) return;
+    list.unshift({
+      id: idc++, title: t.title, msg: t.msg, icon: t.icon,
+      style: t.style, sound: t.sound, route: t.route,
+      time: new Date(), read: false
+    });
+    updateBadge();
+    SOUNDS[t.sound] && SOUNDS[t.sound]();
+    if (document.getElementById('nOverlay').classList.contains('open')) render();
+  }
+
+  function updateBadge() {
+    const c = list.filter(n => !n.read).length;
+    const b = document.getElementById('nBadge');
+    if (c > 0) { b.style.display = 'flex'; b.textContent = c > 99 ? '99+' : c; }
+    else b.style.display = 'none';
+  }
+
+  function open() {
+    audio();
+    document.getElementById('nOverlay').classList.add('open');
+    render();
+  }
+  function close(e) {
+    if (e && e.target.id !== 'nOverlay') return;
+    document.getElementById('nOverlay').classList.remove('open');
+  }
+
+  function render() {
+    const el = document.getElementById('nList');
+    if (!list.length) {
+      el.innerHTML = '<div class="n-empty">No notifications yet</div>';
+      return;
+    }
+    el.innerHTML = list.map((n, i) => `
+      <div class="n-item ${n.read ? '' : 'unread'} ${n.style}" data-id="${n.id}" style="animation-delay:${i*0.03}s">
+        <div class="n-swipe-bg">Delete</div>
+        <div class="n-inner"
+             ontouchstart="N._sStart(event,this)" ontouchmove="N._sMove(event,this)" ontouchend="N._sEnd(event,this)"
+             onmousedown="N._sStart(event,this)" onmousemove="N._sMove(event,this)" onmouseup="N._sEnd(event,this)" onmouseleave="N._sEnd(event,this)">
+          <div class="n-icon ${n.style}">${ICONS[n.icon] || ICONS.check}</div>
+          <div class="n-body" onclick="N.openItem(${n.id})">
+            <div class="n-title">${n.read ? '' : '<span class="n-dot"></span>'}${n.title}</div>
+            <div class="n-msg">${n.msg}</div>
+            <div class="n-meta">
+              <span class="n-time">${fmt(n.time)}</span>
+              <span class="n-go">Open →</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function fmt(d) {
+    const s = (Date.now() - d) / 1000;
+    if (s < 60) return 'Just now';
+    if (s < 3600) return Math.floor(s/60) + 'm ago';
+    if (s < 86400) return Math.floor(s/3600) + 'h ago';
+    return d.toLocaleDateString();
+  }
+
+  function openItem(id) {
+    const n = list.find(x => x.id === id);
+    if (!n) return;
+    n.read = true;
+    updateBadge();
+    close();
+    // Deep link hook – replace with your real navigation
+    console.log('Navigate →', n.route);
+    toast('Opening ' + n.route.charAt(0).toUpperCase() + n.route.slice(1));
+  }
+
+  function markAll() { list.forEach(n => n.read = true); updateBadge(); render(); }
+  function clearAll() { list = []; updateBadge(); render(); }
+  function remove(id) {
+    const el = document.querySelector(`.n-item[data-id="${id}"]`);
+    if (!el) return;
+    el.classList.add('removing');
+    setTimeout(() => { list = list.filter(n => n.id !== id); updateBadge(); render(); }, 300);
+  }
+
+  // Swipe
+  let st = { x0:0, x:0, el:null, on:false, moved:false };
+  function _sStart(e, el) {
+    const t = e.touches ? e.touches[0] : e;
+    st.x0 = t.clientX; st.x = t.clientX; st.el = el; st.on = true; st.moved = false;
+    el.parentElement.classList.add('swiping');
+  }
+  function _sMove(e, el) {
+    if (!st.on || st.el !== el) return;
+    const t = e.touches ? e.touches[0] : e;
+    st.x = t.clientX;
+    const dx = st.x - st.x0;
+    if (Math.abs(dx) > 6) st.moved = true;
+    if (dx < 0) {
+      const drag = dx < -90 ? -90 + (dx + 90) * 0.25 : dx;
+      el.style.transform = `translateX(${drag}px)`;
+    }
+  }
+  function _sEnd(e, el) {
+    if (!st.on || st.el !== el) return;
+    const dx = st.x - st.x0;
+    el.parentElement.classList.remove('swiping');
+    if (st.moved && dx < -70) remove(+el.parentElement.getAttribute('data-id'));
+    else el.style.transform = '';
+    st.on = false; st.el = null;
+  }
+
+  function toast(msg) {
+    const t = document.getElementById('nToast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2000);
+  }
+
+  return { push, open, close, markAll, clearAll, openItem, _sStart, _sMove, _sEnd };
+})();
+
+// Seed examples
+setTimeout(() => {
+  N.push('trade_win');
+  setTimeout(() => N.push('news'), 350);
+  setTimeout(() => N.push('deposit_ok'), 700);
+}, 500);
+</script>
+</body>
+</html>

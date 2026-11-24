@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Mines · Risk</title>
+<script src="./ouro-wallet-bridge.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0e14; --panel: #121820; --panel2: #1a222e;
+  --border: rgba(255,255,255,0.07); --gold: #f0c14b; --green: #22c55e;
+  --red: #ef4444; --blue: #3b82f6; --text: #e8edf5; --muted: #7d8a9e;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body {
+  font-family: 'Poppins', system-ui, sans-serif;
+  background: var(--bg); color: var(--text);
+  max-width: 430px; margin: 0 auto; min-height: 100dvh;
+  display: flex; flex-direction: column; user-select: none; overflow-x: hidden;
+}
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.logo {
+  font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 17px;
+  background: linear-gradient(90deg, #ef4444, #f0c14b);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.bal-box { text-align: right; }
+.bal-box .label { font-size: 9px; color: var(--muted); text-transform: uppercase; }
+.bal-box .val { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; color: var(--gold); }
+.sound-btn {
+  width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--panel2); color: var(--text); font-size: 14px; cursor: pointer;
+}
+
+.grid-wrap {
+  margin: 12px; background: var(--panel); border-radius: 16px; padding: 12px;
+  border: 1px solid var(--border);
+}
+.grid {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;
+}
+.cell {
+  aspect-ratio: 1; border-radius: 12px; background: var(--panel2);
+  border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
+  font-size: 22px; cursor: pointer; transition: all 0.15s; position: relative;
+  overflow: hidden;
+}
+.cell:active { transform: scale(0.94); }
+.cell.safe {
+  background: linear-gradient(145deg, #166534, #14532d);
+  border-color: #22c55e; color: #4ade80;
+  animation: reveal 0.25s ease;
+}
+.cell.mine {
+  background: linear-gradient(145deg, #7f1d1d, #450a0a);
+  border-color: #ef4444; animation: boom 0.35s ease;
+}
+.cell.disabled { pointer-events: none; opacity: 0.7; }
+.cell.hidden-mine { background: #3f1a1a; }
+@keyframes reveal { 0%{transform:scale(0.7);opacity:0.5} 100%{transform:scale(1);opacity:1} }
+@keyframes boom { 0%{transform:scale(1.2)} 100%{transform:scale(1)} }
+
+.mult-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  margin: 10px 12px 0; padding: 10px 14px; background: var(--panel);
+  border-radius: 12px; border: 1px solid var(--border);
+}
+.mult-bar .cur { font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; color: var(--gold); }
+.mult-bar .lab { font-size: 11px; color: var(--muted); }
+
+.controls {
+  padding: 12px 14px 16px; background: var(--panel); border-top: 1px solid var(--border); margin-top: auto;
+}
+.row { display: flex; gap: 10px; margin-bottom: 10px; }
+.box {
+  flex: 1; background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 10px 12px;
+}
+.box label { font-size: 10px; color: var(--muted); display: block; margin-bottom: 4px; text-transform: uppercase; }
+.box input, .box select {
+  width: 100%; background: transparent; border: none; outline: none;
+  color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 700;
+}
+.box select { color: var(--gold); }
+.chips { display: flex; gap: 6px; margin-bottom: 12px; }
+.chip {
+  flex: 1; padding: 8px 4px; border-radius: 8px; background: var(--panel2);
+  border: 1px solid var(--border); font-size: 12px; font-weight: 600; color: var(--muted);
+  text-align: center; cursor: pointer;
+}
+.chip.active { border-color: var(--gold); color: var(--gold); }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn {
+  border: none; border-radius: 14px; padding: 15px 8px; font-size: 15px; font-weight: 800;
+  cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  transition: transform 0.12s;
+}
+.btn:active { transform: scale(0.96); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-start {
+  background: linear-gradient(180deg, #3b82f6, #1d4ed8); color: #fff;
+  box-shadow: 0 4px 16px rgba(59,130,246,0.35);
+}
+.btn-cash {
+  background: linear-gradient(180deg, #22c55e, #15803d); color: #04120a;
+  box-shadow: 0 4px 16px rgba(34,197,94,0.35);
+}
+.btn small { font-size: 10px; font-weight: 500; opacity: 0.85; }
+
+.toast {
+  position: fixed; top: 58px; left: 50%; transform: translateX(-50%) translateY(-16px);
+  background: var(--panel2); border: 1px solid var(--border); padding: 10px 18px;
+  border-radius: 10px; font-size: 13px; font-weight: 600; z-index: 100;
+  opacity: 0; transition: all 0.28s; pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.win { border-color: #22c55e; color: #4ade80; }
+.toast.lose { border-color: #ef4444; color: #f87171; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">MINES</div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <button class="sound-btn" id="soundBtn" onclick="toggleSound()">🔊</button>
+    <div class="bal-box">
+      <div class="label">Balance</div>
+      <div class="val" id="balance">₹0.00</div>
+    </div>
+  </div>
+</div>
+
+<div class="mult-bar">
+  <div>
+    <div class="lab">Current Multiplier</div>
+    <div class="cur" id="multVal">1.00x</div>
+  </div>
+  <div style="text-align:right">
+    <div class="lab">Gems Found</div>
+    <div class="cur" id="gemsVal" style="font-size:18px">0</div>
+  </div>
+</div>
+
+<div class="grid-wrap">
+  <div class="grid" id="grid"></div>
+</div>
+
+<div class="controls">
+  <div class="row">
+    <div class="box">
+      <label>Bet Amount</label>
+      <input type="number" id="betAmt" value="100" min="10" step="10">
+    </div>
+    <div class="box">
+      <label>Mines</label>
+      <select id="mineCount" onchange="if(phase==='idle') setupGrid()">
+        <option value="3">3 Mines</option>
+        <option value="5" selected>5 Mines</option>
+        <option value="10">10 Mines</option>
+        <option value="15">15 Mines</option>
+        <option value="20">20 Mines</option>
+      </select>
+    </div>
+  </div>
+  <div class="chips">
+    <div class="chip" onclick="setBet(50,this)">₹50</div>
+    <div class="chip active" onclick="setBet(100,this)">₹100</div>
+    <div class="chip" onclick="setBet(250,this)">₹250</div>
+    <div class="chip" onclick="setBet(500,this)">₹500</div>
+  </div>
+  <div class="actions">
+    <button class="btn btn-start" id="btnStart" onclick="startGame()">
+      BET
+      <small id="startHint">Start game</small>
+    </button>
+    <button class="btn btn-cash" id="btnCash" onclick="cashOut()" disabled>
+      CASH OUT
+      <small id="cashHint">—</small>
+    </button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SIZE = 25; // 5x5
+let balance = window.OuroBridge ? window.OuroBridge.getBalance() : 0;
+let soundOn = true;
+let phase = 'idle'; // idle | playing | dead
+let mines = [];
+let revealed = [];
+let gems = 0;
+let currentMult = 1;
+let betAmount = 0;
+let audioCtx = null;
+
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+function tone(f,d,t='sine',v=0.08,w=0) {
+  if (!soundOn) return;
+  ensureAudio();
+  const t0 = audioCtx.currentTime + w;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = t; o.frequency.setValueAtTime(f, t0);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(v, t0+0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0+d);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(t0); o.stop(t0+d+0.02);
+}
+function playGem() { tone(520,0.08,'sine',0.07); tone(780,0.1,'sine',0.05,0.06); }
+function playMine() { tone(120,0.2,'sawtooth',0.1); tone(60,0.3,'triangle',0.07,0.1); }
+function playCash() { [523,659,784,1046].forEach((f,i)=>tone(f,0.15,'sine',0.08,i*0.07)); }
+function toggleSound() {
+  soundOn = !soundOn;
+  document.getElementById('soundBtn').textContent = soundOn ? '🔊' : '🔇';
+  if (soundOn) tone(600,0.07);
+}
+
+function fmt(n) { return n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function updateBal() { document.getElementById('balance').textContent = '₹'+fmt(balance); }
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast show'+(type?' '+type:'');
+  setTimeout(()=>t.classList.remove('show'), 2000);
+}
+function setBet(v,el) {
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+  if(el) el.classList.add('active');
+  document.getElementById('betAmt').value = v;
+}
+
+// Combinatorial multiplier with 93% target RTP
+function calcMult(gemsFound, mineCount) {
+  const safe = SIZE - mineCount;
+  if (gemsFound <= 0 || mineCount <= 0 || mineCount >= SIZE) return 1;
+  const clamped = Math.min(gemsFound, safe);
+  let prob = 1;
+  for (let i = 0; i < clamped; i++) {
+    prob *= (safe - i) / (SIZE - i);
+  }
+  return Math.max(1.01, Math.floor((0.93 / prob) * 100) / 100);
+}
+
+function setupGrid() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  for (let i = 0; i < SIZE; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.dataset.idx = i;
+    cell.onclick = () => reveal(i);
+    grid.appendChild(cell);
+  }
+  document.getElementById('multVal').textContent = '1.00x';
+  document.getElementById('gemsVal').textContent = '0';
+}
+
+function startGame() {
+  if (phase === 'playing') return;
+  const amt = +document.getElementById('betAmt').value;
+  if (!amt || amt < 10) return showToast('Min bet ₹10');
+  if (window.OuroBridge ? !window.OuroBridge.canAfford(amt) : amt > balance) {
+    showToast('Insufficient balance — Top Up', 'lose');
+    if (window.OuroBridge) window.OuroBridge.openTopUp();
+    return;
+  }
+
+  const mineCount = +document.getElementById('mineCount').value;
+  if (window.OuroBridge) {
+    if (!window.OuroBridge.bet(amt, 'Mines')) {
+      window.OuroBridge.openTopUp();
+      return;
+    }
+    balance = window.OuroBridge.getBalance();
+  } else {
+    balance -= amt;
+  }
+  updateBal();
+  betAmount = amt;
+  phase = 'playing';
+  gems = 0;
+  currentMult = 1;
+  revealed = [];
+
+  // place mines
+  mines = [];
+  while (mines.length < mineCount) {
+    const r = Math.floor(Math.random() * SIZE);
+    if (!mines.includes(r)) mines.push(r);
+  }
+
+  setupGrid();
+  document.getElementById('btnStart').disabled = true;
+  document.getElementById('btnCash').disabled = true;
+  document.getElementById('startHint').textContent = 'Playing...';
+  document.getElementById('cashHint').textContent = '—';
+  document.getElementById('mineCount').disabled = true;
+  tone(400,0.08,'square',0.05);
+}
+
+function reveal(idx) {
+  if (phase !== 'playing' || revealed.includes(idx)) return;
+  revealed.push(idx);
+  const cell = document.querySelector('[data-idx="'+idx+'"]');
+
+  if (mines.includes(idx)) {
+    // BOOM
+    phase = 'dead';
+    cell.classList.add('mine');
+    cell.textContent = '💣';
+    playMine();
+    // reveal all mines
+    mines.forEach(m => {
+      const c = document.querySelector('[data-idx="'+m+'"]');
+      if (!c.classList.contains('mine')) {
+        c.classList.add('mine','hidden-mine');
+        c.textContent = '💣';
+      }
+    });
+    document.querySelectorAll('.cell').forEach(c => c.classList.add('disabled'));
+    document.getElementById('btnStart').disabled = false;
+    document.getElementById('btnCash').disabled = true;
+    document.getElementById('startHint').textContent = 'Start game';
+    document.getElementById('mineCount').disabled = false;
+    showToast('Mine hit! -₹'+fmt(betAmount), 'lose');
+    return;
+  }
+
+  // SAFE
+  gems++;
+  currentMult = calcMult(gems, mines.length);
+  cell.classList.add('safe');
+  cell.textContent = '💎';
+  document.getElementById('multVal').textContent = currentMult.toFixed(2)+'x';
+  document.getElementById('gemsVal').textContent = gems;
+  document.getElementById('btnCash').disabled = false;
+  document.getElementById('cashHint').textContent = '₹'+fmt(betAmount * currentMult);
+  playGem();
+
+  // auto win if all safe opened
+  if (gems >= SIZE - mines.length) {
+    cashOut();
+  }
+}
+
+function cashOut() {
+  if (phase !== 'playing' || gems === 0) return;
+  const payout = Math.round(betAmount * currentMult * 100) / 100;
+  const profit = payout - betAmount;
+  if (window.OuroBridge && payout > 0) {
+    window.OuroBridge.win(payout, 'Mines Cashout');
+    balance = window.OuroBridge.getBalance();
+  } else {
+    balance += payout;
+  }
+  updateBal();
+  phase = 'idle';
+
+  document.querySelectorAll('.cell').forEach(c => c.classList.add('disabled'));
+  // show remaining mines
+  mines.forEach(m => {
+    if (!revealed.includes(m)) {
+      const c = document.querySelector('[data-idx="'+m+'"]');
+      c.classList.add('mine','hidden-mine');
+      c.textContent = '💣';
+    }
+  });
+
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnCash').disabled = true;
+  document.getElementById('startHint').textContent = 'Start game';
+  document.getElementById('cashHint').textContent = '—';
+  document.getElementById('mineCount').disabled = false;
+  playCash();
+  showToast('Cashed @ '+currentMult.toFixed(2)+'x · +₹'+fmt(profit), 'win');
+}
+
+if (window.OuroBridge) {
+  balance = window.OuroBridge.init({
+    gameId: 'mines',
+    gameTitle: 'Mines',
+    onBalanceChange: (bal) => { balance = bal; updateBal(); },
+    onDenied: (msg) => showToast(msg, 'lose'),
+  });
+}
+setupGrid();
+updateBal();
+</script>
+</body>
+</html>

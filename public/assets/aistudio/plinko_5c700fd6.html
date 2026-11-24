@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Plinko · Drop</title>
+<script src="./ouro-wallet-bridge.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0e14; --panel: #121820; --panel2: #1a222e;
+  --border: rgba(255,255,255,0.07); --gold: #f0c14b; --green: #22c55e;
+  --red: #ef4444; --blue: #3b82f6; --text: #e8edf5; --muted: #7d8a9e;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body {
+  font-family: 'Poppins', system-ui, sans-serif;
+  background: var(--bg); color: var(--text);
+  max-width: 430px; margin: 0 auto; min-height: 100dvh;
+  display: flex; flex-direction: column; user-select: none; overflow-x: hidden;
+}
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.logo {
+  font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 17px;
+  background: linear-gradient(90deg, #a78bfa, #f0c14b);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.bal-box { text-align: right; }
+.bal-box .label { font-size: 9px; color: var(--muted); text-transform: uppercase; }
+.bal-box .val { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; color: var(--gold); }
+.sound-btn {
+  width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--panel2); color: var(--text); font-size: 14px; cursor: pointer;
+}
+
+.board-wrap {
+  margin: 10px 12px; background: var(--panel); border-radius: 16px;
+  border: 1px solid var(--border); overflow: hidden; position: relative;
+}
+#plinkoCanvas {
+  display: block; width: 100%; height: 340px;
+  background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+}
+
+.buckets {
+  display: flex; padding: 0 4px 8px; gap: 2px;
+}
+.bucket {
+  flex: 1; text-align: center; padding: 6px 0; border-radius: 6px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
+}
+.bucket.low { background: rgba(239,68,68,0.2); color: #f87171; }
+.bucket.mid { background: rgba(240,193,75,0.2); color: #f0c14b; }
+.bucket.high { background: rgba(34,197,94,0.2); color: #4ade80; }
+
+.controls {
+  padding: 12px 14px 16px; background: var(--panel); border-top: 1px solid var(--border); margin-top: auto;
+}
+.row { display: flex; gap: 10px; margin-bottom: 10px; }
+.box {
+  flex: 1; background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 10px 12px;
+}
+.box label { font-size: 10px; color: var(--muted); display: block; margin-bottom: 4px; text-transform: uppercase; }
+.box input, .box select {
+  width: 100%; background: transparent; border: none; outline: none;
+  color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 700;
+}
+.chips { display: flex; gap: 6px; margin-bottom: 12px; }
+.chip {
+  flex: 1; padding: 8px 4px; border-radius: 8px; background: var(--panel2);
+  border: 1px solid var(--border); font-size: 12px; font-weight: 600; color: var(--muted);
+  text-align: center; cursor: pointer;
+}
+.chip.active { border-color: var(--gold); color: var(--gold); }
+.btn-drop {
+  width: 100%; border: none; border-radius: 14px; padding: 16px;
+  font-size: 16px; font-weight: 800; cursor: pointer;
+  background: linear-gradient(180deg, #a78bfa, #7c3aed); color: #fff;
+  box-shadow: 0 4px 20px rgba(167,139,250,0.35);
+  transition: transform 0.12s;
+}
+.btn-drop:active { transform: scale(0.97); }
+.btn-drop:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.toast {
+  position: fixed; top: 58px; left: 50%; transform: translateX(-50%) translateY(-16px);
+  background: var(--panel2); border: 1px solid var(--border); padding: 10px 18px;
+  border-radius: 10px; font-size: 13px; font-weight: 600; z-index: 100;
+  opacity: 0; transition: all 0.28s; pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.win { border-color: #22c55e; color: #4ade80; }
+.toast.lose { border-color: #ef4444; color: #f87171; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">PLINKO</div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <button class="sound-btn" id="soundBtn" onclick="toggleSound()">🔊</button>
+    <div class="bal-box">
+      <div class="label">Balance</div>
+      <div class="val" id="balance">₹0.00</div>
+    </div>
+  </div>
+</div>
+
+<div class="board-wrap">
+  <canvas id="plinkoCanvas"></canvas>
+  <div class="buckets" id="buckets"></div>
+</div>
+
+<div class="controls">
+  <div class="row">
+    <div class="box">
+      <label>Bet Amount</label>
+      <input type="number" id="betAmt" value="50" min="10" step="10">
+    </div>
+    <div class="box">
+      <label>Risk</label>
+      <select id="risk" onchange="updateBuckets()">
+        <option value="low">Low</option>
+        <option value="medium" selected>Medium</option>
+        <option value="high">High</option>
+      </select>
+    </div>
+  </div>
+  <div class="chips">
+    <div class="chip" onclick="setBet(20,this)">₹20</div>
+    <div class="chip active" onclick="setBet(50,this)">₹50</div>
+    <div class="chip" onclick="setBet(100,this)">₹100</div>
+    <div class="chip" onclick="setBet(250,this)">₹250</div>
+  </div>
+  <button class="btn-drop" id="btnDrop" onclick="dropBall()">DROP BALL</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const ROWS = 10;
+const MULTS = {
+  low:    [3.5, 2.0, 1.4, 1.1, 0.85, 0.65, 0.85, 1.1, 1.4, 2.0, 3.5],
+  medium: [8.0, 4.0, 2.1, 1.15, 0.7, 0.35, 0.7, 1.15, 2.1, 4.0, 8.0],
+  high:   [18.0, 7.0, 2.8, 1.2, 0.4, 0.2, 0.4, 1.2, 2.8, 7.0, 18.0]
+};
+
+let balance = window.OuroBridge ? window.OuroBridge.getBalance() : 0;
+let soundOn = true;
+let dropping = false;
+let pins = [];
+let balls = [];
+let audioCtx = null;
+let canvas, ctx, W, H;
+
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+function tone(f,d,t='sine',v=0.07,w=0) {
+  if (!soundOn) return;
+  ensureAudio();
+  const t0 = audioCtx.currentTime + w;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = t; o.frequency.setValueAtTime(f, t0);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(v, t0+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0+d);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(t0); o.stop(t0+d+0.02);
+}
+function playHit() { tone(280+Math.random()*120, 0.04, 'square', 0.03); }
+function playLand(high) {
+  if (high) [523,659,784].forEach((f,i)=>tone(f,0.12,'sine',0.07,i*0.06));
+  else tone(200,0.1,'triangle',0.05);
+}
+function toggleSound() {
+  soundOn = !soundOn;
+  document.getElementById('soundBtn').textContent = soundOn ? '🔊' : '🔇';
+  if (soundOn) tone(600,0.07);
+}
+
+function fmt(n) { return n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function updateBal() { document.getElementById('balance').textContent = '₹'+fmt(balance); }
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast show'+(type?' '+type:'');
+  setTimeout(()=>t.classList.remove('show'), 2000);
+}
+function setBet(v,el) {
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+  if(el) el.classList.add('active');
+  document.getElementById('betAmt').value = v;
+}
+
+function updateBuckets() {
+  const risk = document.getElementById('risk').value;
+  const m = MULTS[risk];
+  const box = document.getElementById('buckets');
+  box.innerHTML = m.map(v => {
+    let cls = v >= 2 ? 'high' : v >= 1 ? 'mid' : 'low';
+    return '<div class="bucket '+cls+'">'+v+'x</div>';
+  }).join('');
+}
+
+function initCanvas() {
+  canvas = document.getElementById('plinkoCanvas');
+  ctx = canvas.getContext('2d');
+  const rect = canvas.getBoundingClientRect();
+  W = rect.width;
+  H = 340;
+  canvas.width = W * devicePixelRatio;
+  canvas.height = H * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+
+  // generate pins
+  pins = [];
+  const startY = 30;
+  const gapY = (H - 70) / ROWS;
+  for (let r = 0; r < ROWS; r++) {
+    const count = r + 3;
+    const gapX = W / (count + 1);
+    for (let c = 0; c < count; c++) {
+      pins.push({
+        x: gapX * (c + 1),
+        y: startY + r * gapY,
+        r: 4
+      });
+    }
+  }
+  draw();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  // pins
+  pins.forEach(p => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+    ctx.fillStyle = '#94a3b8';
+    ctx.fill();
+  });
+  // balls
+  balls.forEach(b => {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.radius, 0, Math.PI*2);
+    ctx.fillStyle = '#f0c14b';
+    ctx.shadowColor = 'rgba(240,193,75,0.5)';
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  });
+}
+
+function dropBall() {
+  if (dropping) return;
+  const amt = +document.getElementById('betAmt').value;
+  if (!amt || amt < 10) return showToast('Min bet ₹10');
+  if (window.OuroBridge ? !window.OuroBridge.canAfford(amt) : amt > balance) {
+    showToast('Insufficient balance — Top Up', 'lose');
+    if (window.OuroBridge) window.OuroBridge.openTopUp();
+    return;
+  }
+
+  if (window.OuroBridge) {
+    if (!window.OuroBridge.bet(amt, 'Plinko Drop')) {
+      window.OuroBridge.openTopUp();
+      return;
+    }
+    balance = window.OuroBridge.getBalance();
+  } else {
+    balance -= amt;
+  }
+  updateBal();
+  dropping = true;
+  document.getElementById('btnDrop').disabled = true;
+
+  let targetSlot = 0;
+  for (let i = 0; i < ROWS; i++) if (Math.random() < 0.5) targetSlot++;
+
+  const ball = {
+    x: W/2 + (Math.random()-0.5)*10,
+    y: 10,
+    vx: (Math.random()-0.5)*1.2,
+    vy: 0,
+    radius: 7,
+    bet: amt,
+    targetSlot,
+    done: false
+  };
+  balls.push(ball);
+  tone(400,0.06,'square',0.04);
+  requestAnimationFrame(tick);
+}
+
+function tick() {
+  let active = false;
+  const risk = document.getElementById('risk').value;
+  const m = MULTS[risk];
+  const binW = W / m.length;
+
+  balls.forEach(b => {
+    if (b.done) return;
+    active = true;
+    const progress = Math.min(1, Math.max(0, b.y / (H - 24)));
+    const targetX = (b.targetSlot + 0.5) * binW;
+    b.vy += 0.28; // gravity
+    // Gentle binomial path guidance so visual bounce matches true binomial probability
+    b.vx += (targetX - b.x) * (0.008 + progress * 0.024);
+    b.vx *= 0.94;
+    b.x += b.vx;
+    b.y += b.vy;
+
+    // pin collisions
+    pins.forEach(p => {
+      const dx = b.x - p.x;
+      const dy = b.y - p.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist < b.radius + p.r) {
+        const angle = Math.atan2(dy, dx);
+        const force = 1.6 + Math.random()*0.4;
+        const steerSign = targetX >= b.x ? 1 : -1;
+        b.vx = Math.abs(Math.cos(angle) * force) * steerSign * 0.55 + (targetX - b.x) * 0.025 + (Math.random()-0.5)*0.4;
+        b.vy = Math.abs(Math.sin(angle) * force) * 0.4 + 0.55;
+        b.x = p.x + Math.cos(angle) * (b.radius + p.r + 1);
+        b.y = p.y + Math.sin(angle) * (b.radius + p.r + 1);
+        playHit();
+      }
+    });
+
+    // walls
+    if (b.x < b.radius) { b.x = b.radius; b.vx *= -0.6; }
+    if (b.x > W - b.radius) { b.x = W - b.radius; b.vx *= -0.6; }
+
+    // land
+    if (b.y > H - 20) {
+      b.done = true;
+      b.y = H - 15;
+      const slot = b.targetSlot;
+      b.x = (slot + 0.5) * binW;
+      const mult = m[slot];
+      const payout = Math.round(b.bet * mult * 100) / 100;
+      if (window.OuroBridge && payout > 0) {
+        window.OuroBridge.win(payout, 'Plinko ' + mult + 'x');
+        balance = window.OuroBridge.getBalance();
+      } else {
+        balance += payout;
+      }
+      updateBal();
+      const profit = payout - b.bet;
+      if (mult >= 2) playLand(true);
+      else playLand(false);
+      showToast(mult+'x · '+(profit>=0?'+':'')+'₹'+fmt(profit), profit>=0?'win':'lose');
+      setTimeout(() => {
+        balls = balls.filter(x => x !== b);
+        dropping = false;
+        document.getElementById('btnDrop').disabled = false;
+        draw();
+      }, 600);
+    }
+  });
+
+  draw();
+  if (active) requestAnimationFrame(tick);
+  else {
+    dropping = false;
+    document.getElementById('btnDrop').disabled = false;
+  }
+}
+
+if (window.OuroBridge) {
+  balance = window.OuroBridge.init({
+    gameId: 'plinko',
+    gameTitle: 'Plinko',
+    onBalanceChange: (bal) => { balance = bal; updateBal(); },
+    onDenied: (msg) => showToast(msg, 'lose'),
+  });
+}
+updateBuckets();
+updateBal();
+setTimeout(initCanvas, 50);
+window.addEventListener('resize', () => setTimeout(initCanvas, 50));
+</script>
+</body>
+</html>

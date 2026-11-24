@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Top Up Wallet – Payment Flow</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    :root {
+      --primary: #8b5cf6;
+      --primary-dark: #7c3aed;
+      --primary-light: #c4b5fd;
+      --bg: #0c0c10;
+      --card: #16161d;
+      --card-light: #22222c;
+      --text: #fafafa;
+      --text-muted: #c4c4cc;
+      --border: #2f2f3a;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --radius: 16px;
+      --radius-sm: 12px;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      min-height: 100dvh;
+      overflow-x: hidden;
+      line-height: 1.5;
+    }
+
+    /* ========== LAYOUT ========== */
+    .app {
+      max-width: 480px;
+      margin: 0 auto;
+      min-height: 100vh;
+      min-height: 100dvh;
+      position: relative;
+      background: linear-gradient(180deg, #12121a 0%, #0f0f13 100%);
+    }
+
+    @media (min-width: 768px) {
+      .app {
+        max-width: 420px;
+        margin: 40px auto;
+        border-radius: 24px;
+        box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6);
+        overflow: hidden;
+        min-height: 800px;
+      }
+      body {
+        background: #050508;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+    }
+
+    /* ========== SCREENS ========== */
+    .screen {
+      display: none;
+      flex-direction: column;
+      min-height: 100vh;
+      min-height: 100dvh;
+      padding: 20px 20px 32px;
+      animation: fadeIn 0.3s ease;
+    }
+    .screen.active {
+      display: flex;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ========== HEADER ========== */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+      padding-top: 8px;
+    }
+    .header h1 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .back-btn, .close-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 1.2rem;
+      transition: all 0.2s;
+    }
+    .back-btn:hover, .close-btn:hover {
+      background: var(--card-light);
+      border-color: var(--primary-light);
+    }
+
+    /* ========== CARD ========== */
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 20px;
+      border: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+
+    /* ========== FORM ELEMENTS ========== */
+    .label {
+      font-size: 0.78rem;
+      color: #b0b0ba;
+      margin-bottom: 8px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .input {
+      width: 100%;
+      background: var(--card-light);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px 16px;
+      color: var(--text);
+      font-size: 1.1rem;
+      font-weight: 600;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .input:focus {
+      border-color: var(--primary);
+    }
+    .input::placeholder {
+      color: #52525b;
+      font-weight: 400;
+    }
+
+    /* Amount quick buttons */
+    .amount-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .amount-btn {
+      background: var(--card-light);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 4px;
+      color: var(--text);
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+    .amount-btn:hover, .amount-btn.active {
+      background: rgba(124, 58, 237, 0.2);
+      border-color: var(--primary);
+      color: var(--primary-light);
+    }
+
+    /* Primary button */
+    .btn-primary {
+      width: 100%;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      color: white;
+      border: none;
+      border-radius: 14px;
+      padding: 16px;
+      font-size: 1.05rem;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 24px;
+      transition: all 0.2s;
+      box-shadow: 0 8px 20px -6px rgba(124, 58, 237, 0.5);
+    }
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 24px -6px rgba(124, 58, 237, 0.6);
+    }
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* Secondary / outline button */
+    .btn-outline {
+      width: 100%;
+      background: transparent;
+      color: var(--primary-light);
+      border: 1.5px solid var(--primary);
+      border-radius: 14px;
+      padding: 14px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 12px;
+      transition: all 0.2s;
+    }
+    .btn-outline:hover {
+      background: rgba(124, 58, 237, 0.1);
+    }
+
+    /* ========== PAYMENT METHOD GRID ========== */
+    .method-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 8px;
+    }
+    .method-card {
+      background: var(--card);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 18px 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+    .method-card:hover {
+      border-color: #5b4b8a;
+      background: #1c1c28;
+      transform: translateY(-2px);
+    }
+    .method-card.selected {
+      border-color: var(--primary);
+      background: rgba(139, 92, 246, 0.18);
+      box-shadow: 0 0 0 1px var(--primary);
+      transform: translateY(-2px);
+    }
+    .method-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: white;
+    }
+    .method-name {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .method-desc {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: -4px;
+    }
+
+    /* Icon colors */
+    .icon-upi { background: linear-gradient(135deg, #7c3aed, #a78bfa); }
+    .icon-phonepe { background: linear-gradient(135deg, #5f259f, #7c3aed); }
+    .icon-gpay { background: linear-gradient(135deg, #4285f4, #34a853); }
+    .icon-paytm { background: linear-gradient(135deg, #00baf2, #002e6e); }
+    .icon-navi { background: linear-gradient(135deg, #00c853, #009624); }
+    .icon-airtel { background: linear-gradient(135deg, #ed1c24, #b71c1c); }
+    .icon-amazon { background: linear-gradient(135deg, #ff9900, #e47911); }
+    .icon-bhim { background: linear-gradient(135deg, #00a3e0, #0066a1); }
+    .icon-more { background: var(--card-light); border: 1px dashed var(--border); color: var(--text-muted); }
+
+    /* Full width method (UPI QR) */
+    .method-full {
+      grid-column: 1 / -1;
+      flex-direction: row;
+      justify-content: flex-start;
+      padding: 16px 18px;
+      gap: 16px;
+    }
+    .method-full .method-icon {
+      width: 52px;
+      height: 52px;
+      font-size: 1.6rem;
+    }
+    .method-full .method-info {
+      text-align: left;
+    }
+    .method-full .method-name {
+      font-size: 1rem;
+    }
+
+    /* ========== QR PAGE ========== */
+    .qr-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      flex: 1;
+    }
+    .qr-box {
+      background: white;
+      padding: 18px;
+      border-radius: 20px;
+      margin: 16px 0 20px;
+      box-shadow: 0 12px 40px rgba(139, 92, 246, 0.35);
+      border: 3px solid #e9e5ff;
+    }
+    #qrcode {
+      width: 220px !important;
+      height: 220px !important;
+    }
+    #qrcode img, #qrcode canvas {
+      width: 220px !important;
+      height: 220px !important;
+      border-radius: 8px;
+    }
+
+    .timer-box {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(124, 58, 237, 0.15);
+      border: 1px solid rgba(124, 58, 237, 0.3);
+      border-radius: 50px;
+      padding: 8px 18px;
+      margin-bottom: 16px;
+    }
+    .timer-icon {
+      font-size: 1.1rem;
+    }
+    .timer-text {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--primary-light);
+    }
+    .timer-value {
+      font-variant-numeric: tabular-nums;
+      min-width: 48px;
+    }
+
+    .selected-method-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 50px;
+      padding: 6px 14px 6px 6px;
+      margin-bottom: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .selected-method-badge .mini-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      color: white;
+    }
+
+    .amount-display {
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: var(--text);
+      margin: 4px 0 20px;
+      letter-spacing: -0.03em;
+    }
+    .amount-display span {
+      font-size: 1.1rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    /* UTR section */
+    .utr-section {
+      width: 100%;
+      margin-top: auto;
+      padding-top: 20px;
+    }
+    .utr-hint {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 8px;
+      text-align: center;
+    }
+
+    /* ========== APP OPENING ========== */
+    .app-opening {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 40px 20px;
+    }
+    .app-logo-big {
+      width: 90px;
+      height: 90px;
+      border-radius: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.4rem;
+      color: white;
+      margin-bottom: 24px;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.3);
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+    .app-opening h2 {
+      font-size: 1.4rem;
+      margin-bottom: 8px;
+    }
+    .app-opening p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      max-width: 280px;
+    }
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 24px 0;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* ========== SUCCESS / REVIEW ========== */
+    .success-icon {
+      width: 80px;
+      height: 80px;
+      background: rgba(34, 197, 94, 0.15);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.5rem;
+      margin: 0 auto 20px;
+      color: var(--success);
+    }
+    .review-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.95rem;
+    }
+    .review-row:last-child {
+      border-bottom: none;
+    }
+    .review-label {
+      color: var(--text-muted);
+    }
+    .review-value {
+      font-weight: 600;
+    }
+
+    /* Status badge */
+    .status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 50px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .status-pending {
+      background: rgba(234, 179, 8, 0.15);
+      color: #eab308;
+    }
+    .status-success {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--success);
+    }
+
+    /* Footer note */
+    .footer-note {
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 20px;
+      line-height: 1.4;
+    }
+
+    /* Progress steps */
+    .steps {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    .step-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: all 0.3s;
+    }
+    .step-dot.active {
+      background: var(--primary);
+      width: 24px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <!-- ========== SCREEN 1: TOP UP WALLET (Start) ========== -->
+    <div class="screen active" id="screen-start">
+      <div class="header">
+        <div style="width:40px"></div>
+        <h1>Top Up Wallet</h1>
+        <button class="close-btn" onclick="alert('Close modal')">×</button>
+      </div>
+
+      <div class="steps">
+        <div class="step-dot active"></div>
+        <div class="step-dot"></div>
+        <div class="step-dot"></div>
+        <div class="step-dot"></div>
+      </div>
+
+      <div class="card">
+        <div class="label">Current Balance</div>
+        <div style="font-size:1.6rem;font-weight:800;margin-bottom:4px">₹ 1,250.00</div>
+        <div style="font-size:0.8rem;color:var(--text-muted)">Available for trading</div>
+      </div>
+
+      <div class="label" style="margin-top:8px">How would you like to pay?</div>
+      <button class="btn-primary" onclick="goTo('screen-methods')" style="margin-top:12px">
+        Select Payment Method →
+      </button>
+
+      <p class="footer-note">
+        Instant deposits via UPI • Safe & Secure<br>
+        Minimum ₹100 • Maximum ₹50,000
+      </p>
+    </div>
+
+    <!-- ========== SCREEN 2: SELECT PAYMENT METHOD ========== -->
+    <div class="screen" id="screen-methods">
+      <div class="header">
+        <button class="back-btn" onclick="goTo('screen-start')">←</button>
+        <h1>Payment Method</h1>
+        <div style="width:40px"></div>
+      </div>
+
+      <div class="steps">
+        <div class="step-dot"></div>
+        <div class="step-dot active"></div>
+        <div class="step-dot"></div>
+        <div class="step-dot"></div>
+      </div>
+
+      <div class="label">Choose how you want to pay</div>
+
+      <div class="method-grid" id="method-grid">
+        <!-- Direct UPI QR (full width) -->
+        <div class="method-card method-full" data-method="upi-qr" onclick="selectMethod(this)">
+          <div class="method-icon icon-upi">QR</div>
+          <div class="method-info">
+            <div class="method-name">Direct UPI QR</div>
+            <div class="method-desc">Scan & Pay • Any UPI app</div>
+          </div>
+        </div>
+
+        <div class="method-card" data-method="phonepe" onclick="selectMethod(this)">
+          <div class="method-icon icon-phonepe">Pe</div>
+          <div class="method-name">PhonePe</div>
+          <div class="method-desc">Open App</div>
+        </div>
+
+        <div class="method-card" data-method="gpay" onclick="selectMethod(this)">
+          <div class="method-icon icon-gpay">G</div>
+          <div class="method-name">Google Pay</div>
+          <div class="method-desc">Open App</div>
+        </div>
+
+        <div class="method-card" data-method="paytm" onclick="selectMethod(this)">
+          <div class="method-icon icon-paytm">Pay</div>
+          <div class="method-name">Paytm</div>
+          <div class="method-desc">Open App</div>
+        </div>
+
+        <div class="method-card" data-method="navi" onclick="selectMethod(this)">
+          <div class="method-icon icon-navi">N</div>
+          <div class="method-name">Navi UPI</div>
+          <div class="method-desc">Open App</div>
+        </div>
+
+        <div class="method-card" data-method="airtel" onclick="selectMethod(this)">
+          <div class="method-icon icon-airtel">A</div>
+          <div class="method-name">Airtel Payments</div>
+          <div class="method-desc">Open App</div>
+        </div>
+
+        <div class="method-card" data-method="amazon" onclick="selectMethod(this)">
+          <div class="method-icon icon-amazon">a</div>
+          <div class="method-name">Amazon Pay</div>
+          <div class="method-desc">Open App</div>
+        </div>
+
+        <div class="method-card" data-method="bhim" onclick="selectMethod(this)">
+          <div class="method-icon icon-bhim">BH</div>
+          <div class="method-name">BHIM UPI</div>
+          <div class="method-desc">Open App</div>
+        </div>
+      </div>
+
+      <button class="btn-primary" id="btn-continue-method" disabled onclick="goToAmount()">
+        Continue →
+      </button>
+    </div>
+
+    <!-- ========== SCREEN 3: SELECT AMOUNT ========== -->
+    <div class="screen" id="screen-amount">
+      <div class="header">
+        <button class="back-btn" onclick="goTo('screen-methods')">←</button>
+        <h1>Deposit Amount</h1>
+        <div style="width:40px"></div>
+      </div>
+
+      <div class="steps">
+        <div class="step-dot"></div>
+        <div class="step-dot"></div>
+        <div class="step-dot active"></div>
+        <div class="step-dot"></div>
+      </div>
+
+      <div class="label">Selected Method</div>
+      <div class="selected-method-badge" id="amount-method-badge">
+        <div class="mini-icon icon-upi">QR</div>
+        <span id="amount-method-name">Direct UPI QR</span>
+      </div>
+
+      <div class="label" style="margin-top:20px">Enter Amount (INR)</div>
+      <input type="number" class="input" id="deposit-amount" placeholder="0" value="500" min="100" max="50000" oninput="updateAmountButtons()" />
+
+      <div class="amount-grid">
+        <button class="amount-btn active" data-amt="500" onclick="setAmount(500)">+₹500</button>
+        <button class="amount-btn" data-amt="1000" onclick="setAmount(1000)">+₹1000</button>
+        <button class="amount-btn" data-amt="2500" onclick="setAmount(2500)">+₹2500</button>
+        <button class="amount-btn" data-amt="5000" onclick="setAmount(5000)">+₹5000</button>
+      </div>
+
+      <button class="btn-primary" onclick="proceedToPay()">
+        Confirm Top Up
+      </button>
+
+      <p class="footer-note">
+        You will be redirected to complete the payment.<br>
+        After payment, enter UTR to confirm deposit.
+      </p>
+    </div>
+
+    <!-- ========== SCREEN 4A: UPI QR PAGE ========== -->
+    <div class="screen" id="screen-qr">
+      <div class="header">
+        <button class="back-btn" onclick="goTo('screen-amount')">←</button>
+        <h1>Scan & Pay</h1>
+        <div style="width:40px"></div>
+      </div>
+
+      <div class="qr-container">
+        <div class="selected-method-badge">
+          <div class="mini-icon icon-upi">QR</div>
+          <span>Direct UPI QR</span>
+        </div>
+
+        <div class="amount-display" id="qr-amount">₹500</div>
+
+        <div class="timer-box">
+          <span class="timer-icon">⏱</span>
+          <span class="timer-text">Expires in <span class="timer-value" id="qr-timer">10:00</span></span>
+        </div>
+
+        <div class="qr-box">
+          <div id="qrcode"></div>
+        </div>
+
+        <p style="font-size:0.85rem;color:var(--text-muted);max-width:280px">
+          Scan this QR with any UPI app<br>
+          (PhonePe, GPay, Paytm, BHIM…)
+        </p>
+      </div>
+
+      <div class="utr-section">
+        <div class="label">Enter UTR / Transaction ID</div>
+        <input type="text" class="input" id="utr-input-qr" placeholder="e.g. 312345678901" maxlength="22" />
+        <p class="utr-hint">You will find UTR in your UPI app after successful payment</p>
+
+        <button class="btn-primary" onclick="submitUTR('qr')">
+          I’ve Paid – Submit UTR
+        </button>
+      </div>
+    </div>
+
+    <!-- ========== SCREEN 4B: APP OPENING ========== -->
+    <div class="screen" id="screen-app">
+      <div class="header">
+        <button class="back-btn" onclick="goTo('screen-amount')">←</button>
+        <h1>Opening App</h1>
+        <div style="width:40px"></div>
+      </div>
+
+      <div class="app-opening">
+        <div class="app-logo-big" id="app-logo">Pe</div>
+        <h2 id="app-title">Opening PhonePe…</h2>
+        <p id="app-desc">Please complete the payment of ₹500 in the app. After success, come back and enter UTR.</p>
+        <div class="spinner"></div>
+        <p style="font-size:0.8rem;color:var(--text-muted)">If app doesn’t open automatically, use the button below</p>
+      </div>
+
+      <button class="btn-outline" id="btn-open-app" onclick="openDeepLink()">
+        Open App Manually
+      </button>
+      <button class="btn-primary" style="margin-top:12px" onclick="showUTRAfterApp()">
+        I’ve Paid – Enter UTR
+      </button>
+    </div>
+
+    <!-- ========== SCREEN 5: UTR ENTRY (after app) ========== -->
+    <div class="screen" id="screen-utr">
+      <div class="header">
+        <button class="back-btn" onclick="goTo('screen-app')">←</button>
+        <h1>Confirm Payment</h1>
+        <div style="width:40px"></div>
+      </div>
+
+      <div class="steps">
+        <div class="step-dot"></div>
+        <div class="step-dot"></div>
+        <div class="step-dot"></div>
+        <div class="step-dot active"></div>
+      </div>
+
+      <div class="card" style="text-align:center">
+        <div class="selected-method-badge" style="margin:0 auto 12px">
+          <div class="mini-icon" id="utr-method-icon">Pe</div>
+          <span id="utr-method-name">PhonePe</span>
+        </div>
+        <div class="amount-display" id="utr-amount" style="margin:0">₹500</div>
+        <div style="font-size:0.85rem;color:var(--text-muted);margin-top:4px">Waiting for confirmation</div>
+      </div>
+
+      <div class="label" style="margin-top:8px">Enter UTR / Transaction ID</div>
+      <input type="text" class="input" id="utr-input-app" placeholder="e.g. 312345678901" maxlength="22" />
+      <p class="utr-hint">Copy UTR from your payment app’s success screen</p>
+
+      <button class="btn-primary" onclick="submitUTR('app')">
+        Submit & Complete
+      </button>
+    </div>
+
+    <!-- ========== SCREEN 6: REVIEW / SUCCESS ========== -->
+    <div class="screen" id="screen-success">
+      <div class="header">
+        <div style="width:40px"></div>
+        <h1>Payment Status</h1>
+        <div style="width:40px"></div>
+      </div>
+
+      <div style="text-align:center;padding:20px 0 30px">
+        <div class="success-icon">✓</div>
+        <h2 style="font-size:1.4rem;margin-bottom:6px">Under Review</h2>
+        <p style="color:var(--text-muted);font-size:0.95rem">Your deposit is being verified</p>
+      </div>
+
+      <div class="card">
+        <div class="review-row">
+          <span class="review-label">Amount</span>
+          <span class="review-value" id="final-amount">₹500</span>
+        </div>
+        <div class="review-row">
+          <span class="review-label">Method</span>
+          <span class="review-value" id="final-method">Direct UPI QR</span>
+        </div>
+        <div class="review-row">
+          <span class="review-label">UTR</span>
+          <span class="review-value" id="final-utr">312345678901</span>
+        </div>
+        <div class="review-row">
+          <span class="review-label">Status</span>
+          <span class="status-badge status-pending">Under Review</span>
+        </div>
+        <div class="review-row">
+          <span class="review-label">Time</span>
+          <span class="review-value" id="final-time">—</span>
+        </div>
+      </div>
+
+      <p class="footer-note" style="margin-top:16px">
+        Usually takes 1–5 minutes. You’ll get a notification<br>
+        once the amount is credited to your wallet.
+      </p>
+
+      <button class="btn-primary" onclick="goTo('screen-start')" style="margin-top:28px">
+        Back to Wallet
+      </button>
+    </div>
+
+  </div>
+
+  <script>
+    // ========== STATE ==========
+    let selectedMethod = null;
+    let selectedAmount = 500;
+    let timerInterval = null;
+    let remainingSeconds = 600; // 10 minutes
+
+    const methodData = {
+      'upi-qr': { name: 'Direct UPI QR', icon: 'QR', class: 'icon-upi', type: 'qr' },
+      'phonepe': { name: 'PhonePe', icon: 'Pe', class: 'icon-phonepe', type: 'app', deepLink: 'phonepe://pay' },
+      'gpay': { name: 'Google Pay', icon: 'G', class: 'icon-gpay', type: 'app', deepLink: 'tez://upi/pay' },
+      'paytm': { name: 'Paytm', icon: 'Pay', class: 'icon-paytm', type: 'app', deepLink: 'paytmmp://pay' },
+      'navi': { name: 'Navi UPI', icon: 'N', class: 'icon-navi', type: 'app', deepLink: 'navi://upi' },
+      'airtel': { name: 'Airtel Payments', icon: 'A', class: 'icon-airtel', type: 'app', deepLink: 'myairtel://' },
+      'amazon': { name: 'Amazon Pay', icon: 'a', class: 'icon-amazon', type: 'app', deepLink: 'amazonpay://' },
+      'bhim': { name: 'BHIM UPI', icon: 'BH', class: 'icon-bhim', type: 'app', deepLink: 'bhim://upi' }
+    };
+
+    // ========== NAVIGATION ==========
+    function goTo(screenId) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      document.getElementById(screenId).classList.add('active');
+      window.scrollTo(0, 0);
+
+      // Clear timer if leaving QR screen
+      if (screenId !== 'screen-qr' && timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+    }
+
+    // ========== METHOD SELECTION ==========
+    function selectMethod(el) {
+      document.querySelectorAll('.method-card').forEach(c => c.classList.remove('selected'));
+      el.classList.add('selected');
+      selectedMethod = el.dataset.method;
+      document.getElementById('btn-continue-method').disabled = false;
+    }
+
+    function goToAmount() {
+      if (!selectedMethod) return;
+      const data = methodData[selectedMethod];
+
+      // Update badge on amount screen
+      const badge = document.getElementById('amount-method-badge');
+      badge.innerHTML = `<div class="mini-icon ${data.class}">${data.icon}</div><span>${data.name}</span>`;
+
+      goTo('screen-amount');
+    }
+
+    // ========== AMOUNT ==========
+    function setAmount(val) {
+      selectedAmount = val;
+      document.getElementById('deposit-amount').value = val;
+      updateAmountButtons();
+    }
+
+    function updateAmountButtons() {
+      const val = parseInt(document.getElementById('deposit-amount').value) || 0;
+      selectedAmount = val;
+      document.querySelectorAll('.amount-btn').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.amt) === val);
+      });
+    }
+
+    // ========== PROCEED TO PAY ==========
+    function proceedToPay() {
+      const amt = parseInt(document.getElementById('deposit-amount').value);
+      if (!amt || amt < 100) {
+        alert('Minimum deposit is ₹100');
+        return;
+      }
+      if (amt > 50000) {
+        alert('Maximum deposit is ₹50,000');
+        return;
+      }
+      selectedAmount = amt;
+
+      const data = methodData[selectedMethod];
+
+      if (data.type === 'qr') {
+        // Generate QR and show QR screen
+        showQRPage();
+      } else {
+        // Show app opening screen
+        showAppPage(data);
+      }
+    }
+
+    // ========== QR PAGE ==========
+    function showQRPage() {
+      document.getElementById('qr-amount').textContent = '₹' + selectedAmount.toLocaleString('en-IN');
+
+      // Clear previous QR
+      const qrDiv = document.getElementById('qrcode');
+      qrDiv.innerHTML = '';
+
+      // Generate new QR (UPI deep link style)
+      const upiString = `upi://pay?pa=merchant@upi&pn=WalletTopUp&am=${selectedAmount}&cu=INR&tn=WalletTopUp${Date.now()}`;
+      new QRCode(qrDiv, {
+        text: upiString,
+        width: 220,
+        height: 220,
+        colorDark: '#1a1a22',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+
+      // Start 10 min timer
+      remainingSeconds = 600;
+      updateTimerDisplay();
+      if (timerInterval) clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        remainingSeconds--;
+        updateTimerDisplay();
+        if (remainingSeconds <= 0) {
+          clearInterval(timerInterval);
+          alert('QR expired. Please generate a new one.');
+          goTo('screen-amount');
+        }
+      }, 1000);
+
+      goTo('screen-qr');
+    }
+
+    function updateTimerDisplay() {
+      const min = Math.floor(remainingSeconds / 60);
+      const sec = remainingSeconds % 60;
+      document.getElementById('qr-timer').textContent =
+        `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+    }
+
+    // ========== APP PAGE ==========
+    function showAppPage(data) {
+      document.getElementById('app-logo').className = 'app-logo-big ' + data.class;
+      document.getElementById('app-logo').textContent = data.icon;
+      document.getElementById('app-title').textContent = `Opening ${data.name}…`;
+      document.getElementById('app-desc').textContent =
+        `Please complete the payment of ₹${selectedAmount.toLocaleString('en-IN')} in the app. After success, come back and enter UTR.`;
+
+      // Store for deep link
+      window.currentDeepLink = data.deepLink || '#';
+
+      goTo('screen-app');
+
+      // Auto attempt deep link after short delay
+      setTimeout(() => {
+        try {
+          window.location.href = window.currentDeepLink;
+        } catch (e) {}
+      }, 800);
+    }
+
+    function openDeepLink() {
+      if (window.currentDeepLink) {
+        window.location.href = window.currentDeepLink;
+      }
+    }
+
+    function showUTRAfterApp() {
+      const data = methodData[selectedMethod];
+      document.getElementById('utr-method-icon').className = 'mini-icon ' + data.class;
+      document.getElementById('utr-method-icon').textContent = data.icon;
+      document.getElementById('utr-method-name').textContent = data.name;
+      document.getElementById('utr-amount').textContent = '₹' + selectedAmount.toLocaleString('en-IN');
+      goTo('screen-utr');
+    }
+
+    // ========== SUBMIT UTR ==========
+    function submitUTR(from) {
+      let utr = '';
+      if (from === 'qr') {
+        utr = document.getElementById('utr-input-qr').value.trim();
+      } else {
+        utr = document.getElementById('utr-input-app').value.trim();
+      }
+
+      if (!utr || utr.length < 8) {
+        alert('Please enter a valid UTR / Transaction ID');
+        return;
+      }
+
+      // Fill success screen
+      const data = methodData[selectedMethod];
+      document.getElementById('final-amount').textContent = '₹' + selectedAmount.toLocaleString('en-IN');
+      document.getElementById('final-method').textContent = data.name;
+      document.getElementById('final-utr').textContent = utr;
+      document.getElementById('final-time').textContent = new Date().toLocaleTimeString('en-IN', {
+        hour: '2-digit', minute: '2-digit'
+      });
+
+      goTo('screen-success');
+    }
+
+    // Init
+    updateAmountButtons();
+  </script>
+</body>
+</html>

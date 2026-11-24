@@ -1,0 +1,8 @@
+{
+  "name": "Ouroboros",
+  "description": "Mobile and desktop trading and prediction betting marketplace for global tech brands, gaming indexes, crypto, sports, and live market events.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
