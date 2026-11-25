@@ -102,6 +102,7 @@ import {
   tickMarketPrices,
   validateAndResolveReferralCode,
 } from './utils/tradingEngine';
+import { getAssetUrl } from './utils/assetPath';
 
 const STORAGE_KEY = 'ouroboros_app_state_v1';
 const NOTIF_STORAGE_KEY = 'ouroboros_notifications_v1';
@@ -1839,7 +1840,7 @@ export default function App() {
             }
           >
             <img
-              src="/assets/ouroboros-logo.png"
+              src={getAssetUrl('assets/ouroboros-logo.png')}
               alt="Ouroboros"
               className="h-9 w-auto object-contain select-none"
               draggable={false}

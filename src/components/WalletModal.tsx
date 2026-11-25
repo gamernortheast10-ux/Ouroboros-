@@ -39,6 +39,7 @@ import {
   validateUpiId,
   validateUtr12Digits,
 } from '../utils/tradingEngine';
+import { getAssetUrl } from '../utils/assetPath';
 import {
   MERCHANT_NAME,
   MERCHANT_UPI_ID,
@@ -743,7 +744,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
         <div className={`flex items-center justify-center gap-2 pt-1 text-[11px] ${mutedTextCls}`}>
           <span className="preserve-white w-5 h-5 rounded-md bg-white border border-purple-200 flex items-center justify-center shrink-0">
             <img
-              src="/assets/ouroboros-emblem.png"
+              src={getAssetUrl('assets/ouroboros-emblem.png')}
               alt="Ouroboros"
               className="w-3.5 h-3.5 object-contain"
             />
@@ -1043,7 +1044,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="preserve-white w-10 h-10 rounded-xl bg-white border border-purple-200/90 shadow-sm flex items-center justify-center shrink-0">
                       <img
-                        src="/assets/ouroboros-emblem.png"
+                        src={getAssetUrl('assets/ouroboros-emblem.png')}
                         alt="Ouroboros Official Logo"
                         className="w-7 h-7 object-contain"
                       />

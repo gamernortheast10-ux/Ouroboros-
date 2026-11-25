@@ -29,6 +29,11 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
   maxDepositInr: 100000,
   maxWithdrawInr: 100000,
   supportNotice: '24×7 Owner Helpline Desk',
+  dailyCheckInEnabled: true,
+  dailyCheckInRequiresDeposit: true,
+  dailyCheckInBaseReward: 10,
+  leaderboardEnabled: true,
+  guestBrowsingEnabled: true,
 };
 
 export const DEFAULT_REFERRAL_CONFIG: Required<ReferralConfig> = {

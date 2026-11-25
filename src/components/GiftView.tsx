@@ -47,7 +47,7 @@ export const GiftView: React.FC<GiftViewProps> = ({ state, onRedeemCode }) => {
       : 100;
   const inviteLink =
     typeof window !== 'undefined'
-      ? `${window.location.origin}/?ref=${encodeURIComponent(myReferralCode)}`
+      ? `${window.location.origin}${window.location.pathname.replace(/\/index\.html$/, '').replace(/\/+$/, '')}/?ref=${encodeURIComponent(myReferralCode)}`
       : `/?ref=${encodeURIComponent(myReferralCode)}`;
 
   const handleCopy = async (text: string, key: 'code' | 'link') => {

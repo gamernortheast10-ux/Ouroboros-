@@ -69,11 +69,15 @@ interface ProfileViewProps {
   onRefreshFxRates: () => void;
   onToggleAlerts: () => void;
   onToggleTheme: (theme: ThemeMode) => void;
+  onChangePassword: (params: {
+    currentPassword: string;
+    newPassword: string;
+  }) => { ok: boolean; error?: string };
   onNotify: (text: string, tone?: 'success' | 'error' | 'info') => void;
   onLogout?: () => void;
 }
 
-type ProfileSheet = null | 'transactions' | 'trader_id' | 'tickets' | 'security' | 'get_app';
+type ProfileSheet = null | 'transactions' | 'trader_id' | 'tickets' | 'security' | 'settings' | 'get_app';
 type TxFilter = 'all' | 'deposit' | 'trade' | 'withdraw';
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -90,6 +94,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onRefreshFxRates,
   onToggleAlerts,
   onToggleTheme,
+  onChangePassword,
   onNotify,
   onLogout,
 }) => {
@@ -101,6 +106,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [refreshSpin, setRefreshSpin] = useState(false);
   const [showAllLevels, setShowAllLevels] = useState(false);
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [pwdError, setPwdError] = useState('');
+  const [pwdSuccess, setPwdSuccess] = useState('');
 
   const themeMode: ThemeMode = state.themeMode ?? 'dark';
   const isLight = themeMode === 'light';
@@ -161,6 +171,36 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     window.setTimeout(() => {
       setCopiedKey((prev) => (prev === key ? null : prev));
     }, 1800);
+  };
+
+  const handlePasswordSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwdError('');
+    setPwdSuccess('');
+    if (!currentPwd) {
+      setPwdError('Please enter your current password.');
+      return;
+    }
+    if (newPwd.length < 6) {
+      setPwdError('New password must be at least 6 characters.');
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      setPwdError('New password and confirmation do not match.');
+      return;
+    }
+    const res = onChangePassword({
+      currentPassword: currentPwd,
+      newPassword: newPwd,
+    });
+    if (!res.ok) {
+      setPwdError(res.error ?? 'Could not update password.');
+      return;
+    }
+    setCurrentPwd('');
+    setNewPwd('');
+    setConfirmPwd('');
+    setPwdSuccess('Password updated successfully.');
   };
 
   const surfaceCard = isLight
@@ -991,8 +1031,34 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               </div>
             </section>
 
-            {/* Account Log out */}
-            <div>
+            {/* Bottom Settings & Password Change + Account Log out */}
+            <div className="space-y-2.5">
+              <button
+                type="button"
+                id="profile-bottom-settings-btn"
+                onClick={() => {
+                  setPwdError('');
+                  setPwdSuccess('');
+                  setActiveSheet('settings');
+                }}
+                className={`btn-press w-full min-h-[52px] px-4 rounded-2xl border flex items-center justify-between text-left ${surfaceCard}`}
+              >
+                <span className="flex items-center gap-3">
+                  <span className="w-9 h-9 rounded-xl bg-[#7c3aed]/15 text-[#a78bfa] flex items-center justify-center">
+                    <KeyRound className="w-4 h-4" />
+                  </span>
+                  <span>
+                    <span className={`block text-sm font-bold ${headingText}`}>
+                      Settings &amp; Change Password
+                    </span>
+                    <span className={`block text-xs ${mutedText}`}>
+                      Update account login password &amp; preferences
+                    </span>
+                  </span>
+                </span>
+                <ChevronRight className={`w-4 h-4 ${mutedText}`} />
+              </button>
+
               <button
                 type="button"
                 onClick={onLogout}
@@ -1347,7 +1413,131 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     </div>
                     <span className="text-xs font-bold text-emerald-400">Verified</span>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPwdError('');
+                      setPwdSuccess('');
+                      setActiveSheet('settings');
+                    }}
+                    className="preserve-white btn-press w-full min-h-[44px] rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold text-xs inline-flex items-center justify-center gap-2"
+                  >
+                    <KeyRound className="w-4 h-4" />
+                    Change Account Password
+                  </button>
                 </div>
+              </div>
+            )}
+
+            {/* Settings & Change Password Sheet */}
+            {activeSheet === 'settings' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-extrabold text-white">Account Settings</h3>
+                    <p className="text-xs text-slate-400">Change your login password anytime</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSheet(null)}
+                    aria-label="Close settings dialog"
+                    className="btn-press w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-slate-300"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <form onSubmit={handlePasswordSubmit} className="space-y-3">
+                  <div>
+                    <label
+                      htmlFor="settings-current-pwd"
+                      className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1"
+                    >
+                      Current Password
+                    </label>
+                    <input
+                      id="settings-current-pwd"
+                      type="password"
+                      value={currentPwd}
+                      onChange={(e) => {
+                        setCurrentPwd(e.target.value);
+                        setPwdError('');
+                        setPwdSuccess('');
+                      }}
+                      placeholder="Enter current password"
+                      className="w-full h-10 px-3 rounded-xl bg-[#191928] border border-white/10 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-[#7c3aed]"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="settings-new-pwd"
+                      className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1"
+                    >
+                      New Password
+                    </label>
+                    <input
+                      id="settings-new-pwd"
+                      type="password"
+                      value={newPwd}
+                      onChange={(e) => {
+                        setNewPwd(e.target.value);
+                        setPwdError('');
+                        setPwdSuccess('');
+                      }}
+                      placeholder="Minimum 6 characters"
+                      className="w-full h-10 px-3 rounded-xl bg-[#191928] border border-white/10 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-[#7c3aed]"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="settings-confirm-pwd"
+                      className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1"
+                    >
+                      Confirm New Password
+                    </label>
+                    <input
+                      id="settings-confirm-pwd"
+                      type="password"
+                      value={confirmPwd}
+                      onChange={(e) => {
+                        setConfirmPwd(e.target.value);
+                        setPwdError('');
+                        setPwdSuccess('');
+                      }}
+                      placeholder="Re-enter new password"
+                      className="w-full h-10 px-3 rounded-xl bg-[#191928] border border-white/10 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-[#7c3aed]"
+                    />
+                  </div>
+
+                  {pwdError && (
+                    <p
+                      role="alert"
+                      className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/25 rounded-xl px-3 py-2"
+                    >
+                      {pwdError}
+                    </p>
+                  )}
+
+                  {pwdSuccess && (
+                    <p
+                      role="status"
+                      className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 rounded-xl px-3 py-2"
+                    >
+                      {pwdSuccess}
+                    </p>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="preserve-white btn-press w-full min-h-[44px] rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold text-xs inline-flex items-center justify-center gap-2"
+                  >
+                    <Check className="w-4 h-4" />
+                    Update Password
+                  </button>
+                </form>
               </div>
             )}
 

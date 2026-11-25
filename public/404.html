@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ouroboros — Redirecting...</title>
+    <script>
+      // GitHub Pages Single Page App fallback
+      // Redirects sub-route 404s back to root index preserving query & hash
+      (function () {
+        var loc = window.location;
+        // Keep repository subpath if present
+        var pathSegments = loc.pathname.split('/').filter(Boolean);
+        // If repo path exists, redirect to /<repo>/, otherwise to /
+        var basePath = pathSegments.length > 0 ? '/' + pathSegments[0] + '/' : '/';
+        loc.replace(loc.origin + basePath + loc.search + loc.hash);
+      })();
+    </script>
+  </head>
+  <body style="background: #09090f; color: #fff; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
+    <p>Loading Ouroboros... If you are not redirected, <a href="./" style="color: #a78bfa;">click here</a>.</p>
+  </body>
+</html>

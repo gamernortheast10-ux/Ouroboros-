@@ -2327,6 +2327,107 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     />
                   </label>
 
+                  {/* Daily Check-in, Leaderboard & Guest Access Controls */}
+                  <div className="pt-3 border-t border-white/[0.08] space-y-3">
+                    <div className="text-xs font-bold text-white">
+                      Daily Check-In, Leaderboard &amp; Guest Controls
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {(
+                        [
+                          {
+                            key: 'dailyCheckInEnabled',
+                            label: 'Daily Check-In',
+                            onLabel: 'Enabled',
+                            offLabel: 'Disabled',
+                            defaultVal: true,
+                          },
+                          {
+                            key: 'dailyCheckInRequiresDeposit',
+                            label: 'Check-In Deposit Lock',
+                            onLabel: 'Deposit Req.',
+                            offLabel: 'Unlocked',
+                            defaultVal: true,
+                          },
+                          {
+                            key: 'leaderboardEnabled',
+                            label: 'Top 10 Leaderboard',
+                            onLabel: 'Visible',
+                            offLabel: 'Hidden',
+                            defaultVal: true,
+                          },
+                          {
+                            key: 'guestBrowsingEnabled',
+                            label: 'Guest Browsing',
+                            onLabel: 'Open',
+                            offLabel: 'Login Wall',
+                            defaultVal: true,
+                          },
+                        ] as const
+                      ).map((ctrl) => {
+                        const enabled =
+                          settingsDraft[ctrl.key] !== undefined
+                            ? Boolean(settingsDraft[ctrl.key])
+                            : ctrl.defaultVal;
+                        return (
+                          <button
+                            key={ctrl.key}
+                            type="button"
+                            onClick={() =>
+                              setSettingsDraft((prev) => ({
+                                ...prev,
+                                [ctrl.key]:
+                                  prev[ctrl.key] !== undefined
+                                    ? !prev[ctrl.key]
+                                    : !ctrl.defaultVal,
+                              }))
+                            }
+                            className={`btn-press p-2.5 rounded-xl border text-left space-y-1 transition-colors ${
+                              enabled
+                                ? 'bg-emerald-500/10 border-emerald-500/30'
+                                : 'bg-rose-500/15 border-rose-500/40'
+                            }`}
+                          >
+                            <div className="text-[10.5px] font-bold text-white leading-tight">
+                              {ctrl.label}
+                            </div>
+                            <div
+                              className={`text-[11px] font-extrabold ${
+                                enabled ? 'text-emerald-300' : 'text-rose-300'
+                              }`}
+                            >
+                              {enabled ? ctrl.onLabel : ctrl.offLabel}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <label className="block">
+                      <span className="text-[11px] font-semibold text-slate-400">
+                        Daily Check-In Base Reward (₹ · scales up to ₹50/day by streak)
+                      </span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={50}
+                        step={1}
+                        value={settingsDraft.dailyCheckInBaseReward ?? 10}
+                        onChange={(e) =>
+                          setSettingsDraft({
+                            ...settingsDraft,
+                            dailyCheckInBaseReward: Math.max(
+                              1,
+                              Math.min(50, Number(e.target.value) || 10)
+                            ),
+                          })
+                        }
+                        className="mt-1 w-full h-10 px-3 rounded-xl bg-[#191928] border border-white/10 text-sm font-mono-nums text-white focus:outline-none focus:border-[#7c3aed]"
+                      />
+                    </label>
+                  </div>
+
                   <button
                     type="submit"
                     className="preserve-white btn-press w-full min-h-[44px] rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] text-white text-sm font-extrabold inline-flex items-center justify-center gap-2 shadow-[0_6px_18px_rgba(124,58,237,0.35)]"

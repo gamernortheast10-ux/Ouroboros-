@@ -1,27 +1,28 @@
 import React, { useState } from 'react';
 import {
-  ArrowLeft,
   ArrowRight,
   ArrowUpRight,
   Eye,
   EyeOff,
-  KeyRound,
   Lock,
   Mail,
   Phone,
   Ticket,
   User,
+  X,
 } from 'lucide-react';
 import { ThemeMode } from '../types/trading';
 import { BannerFeatureIcon, BannerTagBadgeIcon } from './BrandMark';
+import { getAssetUrl } from '../utils/assetPath';
 
-type AuthScreenMode = 'login' | 'signup' | 'forgot';
+type AuthScreenMode = 'login' | 'signup';
 
 interface AuthViewProps {
   platformFeePct?: number;
   themeMode?: ThemeMode;
   signupsPaused?: boolean;
   maintenanceNotice?: string;
+  onClose?: () => void;
   onLogin: (params: {
     email: string;
     password: string;
@@ -34,10 +35,6 @@ interface AuthViewProps {
     mobileNumber?: string;
     referralCode?: string;
   }) => { ok: boolean; error?: string };
-  onResetPassword: (params: {
-    email: string;
-    newPassword: string;
-  }) => { ok: boolean; error?: string };
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({
@@ -45,9 +42,9 @@ export const AuthView: React.FC<AuthViewProps> = ({
   themeMode = 'dark',
   signupsPaused = false,
   maintenanceNotice = '',
+  onClose,
   onLogin,
   onSignup,
-  onResetPassword,
 }) => {
   const isLight = themeMode === 'light';
   const initialUrlRef = (() => {
@@ -66,7 +63,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [mobileNumber, setMobileNumber] = useState('');
   const [referralCode, setReferralCode] = useState(initialUrlRef);
@@ -95,27 +91,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       setError('Please enter a valid email address.');
-      return;
-    }
-
-    if (authMode === 'forgot') {
-      if (password.length < 6) {
-        setError('New password must be at least 6 characters.');
-        return;
-      }
-      if (password !== confirmPassword) {
-        setError('Passwords do not match.');
-        return;
-      }
-      const res = onResetPassword({ email: cleanEmail, newPassword: password });
-      if (!res.ok) {
-        setError(res.error ?? 'Could not reset password.');
-        return;
-      }
-      setSuccessMsg('Password updated! You can now sign in with your new password.');
-      setPassword('');
-      setConfirmPassword('');
-      setAuthMode('login');
       return;
     }
 
@@ -172,12 +147,18 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
   return (
     <div
-      className={`min-h-screen flex flex-col items-center justify-start md:justify-center md:py-5 md:px-4 ${
-        isLight ? 'bg-[#f3f1fa]' : 'bg-[#0b0814]'
-      }`}
+      className={
+        onClose
+          ? 'w-full flex items-center justify-center p-2 sm:p-4'
+          : `min-h-screen flex flex-col items-center justify-start md:justify-center md:py-5 md:px-4 ${
+              isLight ? 'bg-[#f3f1fa]' : 'bg-[#0b0814]'
+            }`
+      }
     >
       <div
-        className={`w-full max-w-[460px] min-h-screen md:min-h-0 flex flex-col md:rounded-[30px] overflow-hidden shadow-[0_24px_70px_rgba(15,5,35,0.45)] border-0 md:border ${
+        className={`w-full max-w-[460px] ${
+          onClose ? 'rounded-[28px] max-h-[92vh] overflow-y-auto' : 'min-h-screen md:min-h-0 md:rounded-[30px]'
+        } flex flex-col overflow-hidden shadow-[0_24px_70px_rgba(15,5,35,0.45)] border-0 md:border ${
           isLight ? 'md:border-purple-200/80' : 'md:border-white/10'
         }`}
       >
@@ -202,13 +183,13 @@ export const AuthView: React.FC<AuthViewProps> = ({
           {/* Top Logo + Switch Mode */}
           <div className="relative z-10 flex items-center justify-between gap-2 mb-3">
             <img
-              src="/assets/ouroboros-logo.png"
+              src={getAssetUrl('assets/ouroboros-logo.png')}
               alt="Ouroboros"
               className="h-7 w-auto object-contain select-none"
               draggable={false}
             />
 
-            {authMode !== 'forgot' ? (
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => switchMode(authMode === 'login' ? 'signup' : 'login')}
@@ -217,16 +198,17 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 <span>{authMode === 'login' ? 'Sign up' : 'Sign in'}</span>
                 <ArrowUpRight className="w-3.5 h-3.5" />
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => switchMode('login')}
-                className="preserve-white btn-press inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 text-xs font-bold text-white backdrop-blur-md whitespace-nowrap shrink-0"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Sign in</span>
-              </button>
-            )}
+              {onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="preserve-white btn-press p-1.5 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 text-white backdrop-blur-md"
+                  aria-label="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Animated Fair P2P Trading Highlight Banner */}
@@ -256,18 +238,12 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
           <div className="relative z-10 text-center">
             <h1 className="font-display text-xl sm:text-2xl font-extrabold text-white tracking-tight">
-              {authMode === 'login'
-                ? 'Welcome back'
-                : authMode === 'signup'
-                ? 'Create your account'
-                : 'Reset password'}
+              {authMode === 'login' ? 'Welcome back' : 'Create your account'}
             </h1>
             <p className="text-[11.5px] text-purple-100/85 mt-0.5">
               {authMode === 'login'
                 ? 'Sign in with your registered email & password'
-                : authMode === 'signup'
-                ? 'Start peer-to-peer UP/DOWN trading on live assets'
-                : 'Enter your email and choose a new password'}
+                : 'Start peer-to-peer UP/DOWN trading on live assets'}
             </p>
           </div>
         </section>
@@ -287,48 +263,46 @@ export const AuthView: React.FC<AuthViewProps> = ({
             </div>
           )}
 
-          {authMode !== 'forgot' && (
-            <div
-              role="tablist"
-              aria-label="Authentication mode"
-              className={`grid grid-cols-2 gap-1.5 p-1 rounded-2xl border mb-3.5 ${
-                isLight
-                  ? 'bg-[#f4f1fd] border-purple-200/80'
-                  : 'bg-[#181826] border-white/10'
+          <div
+            role="tablist"
+            aria-label="Authentication mode"
+            className={`grid grid-cols-2 gap-1.5 p-1 rounded-2xl border mb-3.5 ${
+              isLight
+                ? 'bg-[#f4f1fd] border-purple-200/80'
+                : 'bg-[#181826] border-white/10'
+            }`}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={authMode === 'login'}
+              onClick={() => switchMode('login')}
+              className={`btn-press py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                authMode === 'login'
+                  ? 'preserve-white bg-[#7c3aed] text-white shadow-sm'
+                  : isLight
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={authMode === 'login'}
-                onClick={() => switchMode('login')}
-                className={`btn-press py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                  authMode === 'login'
-                    ? 'preserve-white bg-[#7c3aed] text-white shadow-sm'
-                    : isLight
-                    ? 'text-slate-600 hover:text-slate-900'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={authMode === 'signup'}
-                onClick={() => switchMode('signup')}
-                className={`btn-press py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                  authMode === 'signup'
-                    ? 'preserve-white bg-[#7c3aed] text-white shadow-sm'
-                    : isLight
-                    ? 'text-slate-600 hover:text-slate-900'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Create Account
-              </button>
-            </div>
-          )}
+              Sign In
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={authMode === 'signup'}
+              onClick={() => switchMode('signup')}
+              className={`btn-press py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                authMode === 'signup'
+                  ? 'preserve-white bg-[#7c3aed] text-white shadow-sm'
+                  : isLight
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Create Account
+            </button>
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-2.5">
             {authMode === 'signup' && (
@@ -408,19 +382,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
                     isLight ? 'text-slate-600' : 'text-slate-400'
                   }`}
                 >
-                  {authMode === 'forgot' ? 'New Password' : 'Password'}
+                  Password
                 </label>
-                {authMode === 'login' && (
-                  <button
-                    type="button"
-                    onClick={() => switchMode('forgot')}
-                    className={`text-[11px] font-bold hover:underline ${
-                      isLight ? 'text-[#6d28d9]' : 'text-[#a78bfa]'
-                    }`}
-                  >
-                    Forgot password?
-                  </button>
-                )}
               </div>
               <div className={inputShellClass('password')}>
                 <Lock
@@ -464,78 +427,41 @@ export const AuthView: React.FC<AuthViewProps> = ({
               </div>
             </div>
 
-            {/* Confirm Password (Forgot mode) */}
-            {authMode === 'forgot' && (
-              <div>
-                <label
-                  htmlFor="auth-confirm-password"
-                  className={`block text-[10.5px] font-bold uppercase tracking-wider mb-1 ${
-                    isLight ? 'text-slate-600' : 'text-slate-400'
-                  }`}
-                >
-                  Confirm New Password
-                </label>
-                <div className={inputShellClass('confirm')}>
-                  <KeyRound
-                    className={`w-4 h-4 shrink-0 ${
-                      isLight ? 'text-[#6d28d9]' : 'text-[#a78bfa]'
-                    }`}
-                  />
-                  <input
-                    id="auth-confirm-password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Re-enter password"
-                    value={confirmPassword}
-                    onChange={(e) => {
-                      setConfirmPassword(e.target.value);
-                      pulseTyping('confirm');
-                      setError('');
-                    }}
-                    className={`w-full bg-transparent text-sm placeholder:text-slate-500 focus:outline-none ${
-                      isLight ? 'text-slate-900' : 'text-white'
-                    }`}
-                  />
-                </div>
-              </div>
-            )}
-
             {/* Mobile Number (Optional) */}
-            {authMode !== 'forgot' && (
-              <div className="pt-0.5">
-                <label
-                  htmlFor="auth-mobile"
-                  className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${
-                    isLight ? 'text-slate-600' : 'text-slate-400'
+            <div className="pt-0.5">
+              <label
+                htmlFor="auth-mobile"
+                className={`block text-[10.5px] font-bold uppercase tracking-wider mb-1 ${
+                  isLight ? 'text-slate-600' : 'text-slate-400'
+                }`}
+              >
+                Mobile Number{' '}
+                <span className="font-normal lowercase text-slate-500">
+                  (optional)
+                </span>
+              </label>
+              <div className={inputShellClass('mobile')}>
+                <Phone
+                  className={`w-3.5 h-3.5 shrink-0 ${
+                    isLight ? 'text-[#6d28d9]' : 'text-[#a78bfa]'
                   }`}
-                >
-                  Mobile Number{' '}
-                  <span className="font-normal lowercase text-slate-500">
-                    (optional)
-                  </span>
-                </label>
-                <div className={inputShellClass('mobile')}>
-                  <Phone
-                    className={`w-3.5 h-3.5 shrink-0 ${
-                      isLight ? 'text-[#6d28d9]' : 'text-[#a78bfa]'
-                    }`}
-                  />
-                  <input
-                    id="auth-mobile"
-                    type="tel"
-                    inputMode="tel"
-                    placeholder="+91 98xxxx"
-                    value={mobileNumber}
-                    onChange={(e) => {
-                      setMobileNumber(e.target.value);
-                      pulseTyping('mobile');
-                    }}
-                    className={`w-full bg-transparent text-xs font-mono-nums placeholder:text-slate-500 focus:outline-none ${
-                      isLight ? 'text-slate-900' : 'text-white'
-                    }`}
-                  />
-                </div>
+                />
+                <input
+                  id="auth-mobile"
+                  type="tel"
+                  inputMode="tel"
+                  placeholder="+91 98xxxx"
+                  value={mobileNumber}
+                  onChange={(e) => {
+                    setMobileNumber(e.target.value);
+                    pulseTyping('mobile');
+                  }}
+                  className={`w-full bg-transparent text-xs font-mono-nums placeholder:text-slate-500 focus:outline-none ${
+                    isLight ? 'text-slate-900' : 'text-white'
+                  }`}
+                />
               </div>
-            )}
+            </div>
 
             {/* Optional Referral Code on Signup */}
             {authMode === 'signup' && (
@@ -601,36 +527,30 @@ export const AuthView: React.FC<AuthViewProps> = ({
               }}
             >
               <span>
-                {authMode === 'login'
-                  ? 'Sign in'
-                  : authMode === 'signup'
-                  ? 'Create account'
-                  : 'Update Password'}
+                {authMode === 'login' ? 'Sign in' : 'Create account'}
               </span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
 
-          {authMode !== 'forgot' && (
-            <p
-              className={`mt-3.5 text-center text-xs ${
-                isLight ? 'text-slate-600' : 'text-slate-400'
+          <p
+            className={`mt-3.5 text-center text-xs ${
+              isLight ? 'text-slate-600' : 'text-slate-400'
+            }`}
+          >
+            {authMode === 'login'
+              ? "Don't have an account? "
+              : 'Already have an account? '}
+            <button
+              type="button"
+              onClick={() => switchMode(authMode === 'login' ? 'signup' : 'login')}
+              className={`font-bold hover:underline ${
+                isLight ? 'text-[#6d28d9]' : 'text-[#a78bfa]'
               }`}
             >
-              {authMode === 'login'
-                ? "Don't have an account? "
-                : 'Already have an account? '}
-              <button
-                type="button"
-                onClick={() => switchMode(authMode === 'login' ? 'signup' : 'login')}
-                className={`font-bold hover:underline ${
-                  isLight ? 'text-[#6d28d9]' : 'text-[#a78bfa]'
-                }`}
-              >
-                {authMode === 'login' ? 'Create account' : 'Sign in'}
-              </button>
-            </p>
-          )}
+              {authMode === 'login' ? 'Create account' : 'Sign in'}
+            </button>
+          </p>
         </section>
       </div>
     </div>

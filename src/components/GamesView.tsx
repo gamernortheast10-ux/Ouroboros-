@@ -17,6 +17,7 @@ import {
 } from '../data/gamesCatalog';
 import { BaseCurrency, FxRatesMap } from '../types/trading';
 import { GameWalletTxParams, formatCurrency } from '../utils/tradingEngine';
+import { getAssetUrl } from '../utils/assetPath';
 
 interface GameBannerImageProps {
   game: GameCatalogItem;
@@ -92,7 +93,8 @@ export const GamesView: React.FC<GamesViewProps> = ({
   // Remember the initial balance query param for current game load/restart
   const iframeSrc = useMemo(() => {
     if (!activeGame) return '';
-    return `${activeGame.htmlPath}?bal=${encodeURIComponent(
+    const resolvedPath = getAssetUrl(activeGame.htmlPath);
+    return `${resolvedPath}?bal=${encodeURIComponent(
       String(Math.round(latestBalanceRef.current * 100) / 100)
     )}&v=3`;
     // eslint-disable-next-line react-hooks/exhaustive-deps

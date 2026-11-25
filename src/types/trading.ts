@@ -157,7 +157,8 @@ export interface WalletTransaction {
     | 'referral_bonus'
     | 'game_bet'
     | 'game_win'
-    | 'game_refund';
+    | 'game_refund'
+    | 'daily_checkin';
   title: string;
   amount: number; // positive credit, negative debit
   timestamp: string;
@@ -310,6 +311,8 @@ export interface UserProfile {
   language?: LanguageCode;
   referralCode?: string;
   referredByCode?: string;
+  lastCheckInDate?: string;
+  checkInStreak?: number;
 }
 
 export interface MerchantUpiConfig {
@@ -329,6 +332,11 @@ export interface PlatformSettings {
   maxDepositInr: number;
   maxWithdrawInr: number;
   supportNotice: string;
+  dailyCheckInEnabled?: boolean;
+  dailyCheckInRequiresDeposit?: boolean;
+  dailyCheckInBaseReward?: number;
+  leaderboardEnabled?: boolean;
+  guestBrowsingEnabled?: boolean;
 }
 
 export interface PendingTransferAnimation {
@@ -372,6 +380,8 @@ export interface RegisteredAccount {
   referralRewardSettled?: boolean;
   rewardedReferralsCount?: number;
   referralEarnedInr?: number;
+  lastCheckInDate?: string;
+  checkInStreak?: number;
   createdAt?: string;
 }
 

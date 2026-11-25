@@ -1,10 +1,11 @@
 import React, { useId } from 'react';
 import { MarketAsset } from '../types/trading';
+import { getAssetUrl } from '../utils/assetPath';
 
 export const OuroborosLogo: React.FC<{ className?: string }> = ({ className = 'w-8 h-8' }) => {
   return (
     <img
-      src="/assets/ouroboros-emblem.png"
+      src={getAssetUrl('assets/ouroboros-emblem.png')}
       alt="Ouroboros"
       className={`${className} object-contain select-none`}
       draggable={false}

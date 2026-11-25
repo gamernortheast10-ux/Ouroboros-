@@ -22,6 +22,7 @@ import {
   formatCurrency,
   getEffectiveReferralConfig,
 } from '../utils/tradingEngine';
+import { getAssetUrl } from '../utils/assetPath';
 import {
   AssetBadge,
   BannerFeatureIcon,
@@ -40,11 +41,15 @@ import { GameBannerArt } from './GamesView';
 import { MiniCandleBars } from './SparklineChart';
 import { FlagGlobe, FlagGlobeMarker } from './ui/flag-globe';
 import { WalletModalMode } from './WalletModal';
+import { DailyCheckInCard } from './DailyCheckInCard';
+import { TopTradersLeaderboard } from './TopTradersLeaderboard';
 
 interface MarketsViewProps {
   state: AppState;
   unreadNotifications: number;
   onOpenNotifications: () => void;
+  onOpenAuth: () => void;
+  onClaimDailyCheckIn: () => void;
   onOpenTrade?: (asset: MarketAsset, initialSide?: TradeSide) => void;
   onOpenTradeTerminal: (assetId?: string) => void;
   onOpenGame: (gameId: string) => void;
@@ -156,6 +161,8 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
   state,
   unreadNotifications,
   onOpenNotifications,
+  onOpenAuth,
+  onClaimDailyCheckIn,
   onOpenTradeTerminal,
   onOpenGame,
   onOpenAllGames,
@@ -314,33 +321,47 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
           }}
         />
 
-        {/* Top User Row + Single Notification Bell */}
-        <div className="relative z-10 flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
+        {/* Top User Row + Sign In / Notification Bell */}
+        <div className="relative z-10 flex items-center justify-between mb-4 gap-2">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-[14px] bg-white/15 backdrop-blur-md flex items-center justify-center border border-white/10 text-white shrink-0">
               <User className="w-5 h-5" />
             </div>
-            <div>
-              <div className="text-[12px] sm:text-[13px] text-white/85">{t(lang, getTimeGreetingKey())}</div>
-              <div className="text-[17px] sm:text-[19px] font-bold tracking-tight text-white leading-tight">
-                {state.profile.name}
+            <div className="min-w-0">
+              <div className="text-[12px] sm:text-[13px] text-white/85 truncate">
+                {state.isAuthenticated ? t(lang, getTimeGreetingKey()) : 'Welcome to Ouroboros'}
+              </div>
+              <div className="text-[17px] sm:text-[19px] font-bold tracking-tight text-white leading-tight truncate">
+                {state.isAuthenticated ? state.profile.name : 'Guest Explorer'}
               </div>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onOpenNotifications}
-            aria-label={`Notifications (${unreadNotifications} unread)`}
-            className="relative w-[42px] h-[42px] rounded-[14px] bg-white/15 hover:bg-white/20 backdrop-blur-md border border-white/10 flex items-center justify-center text-white transition-transform active:scale-95"
-          >
-            <Bell className="w-5 h-5" />
-            {unreadNotifications > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#ef4444] text-white text-[10px] font-bold flex items-center justify-center border-2 border-[#5b21b6] font-mono-nums">
-                {unreadNotifications > 99 ? '99+' : unreadNotifications}
-              </span>
-            )}
-          </button>
+          {state.isAuthenticated ? (
+            <button
+              type="button"
+              onClick={onOpenNotifications}
+              aria-label={`Notifications (${unreadNotifications} unread)`}
+              className="relative w-[42px] h-[42px] rounded-[14px] bg-white/15 hover:bg-white/20 backdrop-blur-md border border-white/10 flex items-center justify-center text-white transition-transform active:scale-95 shrink-0"
+            >
+              <Bell className="w-5 h-5" />
+              {unreadNotifications > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#ef4444] text-white text-[10px] font-bold flex items-center justify-center border-2 border-[#5b21b6] font-mono-nums">
+                  {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                </span>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              id="guest-header-signin-btn"
+              onClick={onOpenAuth}
+              className="preserve-white btn-press min-h-[40px] px-4 rounded-[14px] bg-white text-[#5b21b6] hover:bg-purple-50 text-xs font-extrabold inline-flex items-center gap-1.5 shadow-[0_6px_18px_rgba(0,0,0,0.22)] whitespace-nowrap shrink-0"
+            >
+              <User className="w-3.5 h-3.5" />
+              <span>Sign In</span>
+            </button>
+          )}
         </div>
 
         {/* Frosted Wallet Balance Card (30° sheen) + Global Market (FlagGlobe Earth) */}
@@ -921,8 +942,20 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
           </section>
         </div>
 
-        {/* Right 5 Cols: Prediction Bets + Supported By Logos + Ouroboros Trust Section */}
+        {/* Right 5 Cols: Daily Check-In + Top Traders Leaderboard + Prediction Bets + Supported By Logos */}
         <div className="lg:col-span-5 space-y-5">
+          <DailyCheckInCard
+            state={state}
+            onClaimDailyCheckIn={onClaimDailyCheckIn}
+            onDepositNow={() => onOpenWalletModal('topup')}
+            onSignInPrompt={onOpenAuth}
+          />
+
+          <TopTradersLeaderboard
+            state={state}
+            onTradeNow={() => onOpenTradeTerminal()}
+          />
+
           <section id="prediction-bets-section" className="space-y-3.5 scroll-mt-16">
             <div className="flex items-center justify-between">
               <h2 className="text-[17px] font-bold text-[#f1f5f9]">{t(lang, 'predictionBets')}</h2>
@@ -1069,7 +1102,7 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
         style={{ background: 'linear-gradient(155deg, #2e1065 0%, #171124 100%)' }}
       >
         <img
-          src="/assets/ouroboros-logo.png"
+          src={getAssetUrl('assets/ouroboros-logo.png')}
           alt="Ouroboros"
           className="h-9 sm:h-10 w-auto mx-auto mb-2.5 object-contain select-none"
           draggable={false}

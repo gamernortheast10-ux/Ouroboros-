@@ -12,22 +12,28 @@ import {
   applyReferralRewardOnFirstBet,
   applyTopUp,
   applyWithdraw,
+  buildTopTradersLeaderboard,
   calculatePlayerLevel,
   calculatePoolPercentages,
   calculatePositionPnl,
   calculateTotalSpent,
   calculateTradeFees,
+  changeAccountPassword,
+  claimDailyCheckIn,
   closeTradePosition,
   computeAdminPlatformSummary,
+  computeDailyCheckInRewardInr,
   consumePendingTransferForUser,
   convertCurrency,
   executeTradeOrder,
   formatCurrency,
   generateReferralCode,
   getActiveMerchantUpis,
+  getDayKey,
   getHorizonDurationSeconds,
   getHorizonLeverage,
   getPrimaryMerchantUpi,
+  hasVerifiedDeposit,
   isOwnerAdmin,
   placePredictionBet,
   redeemGiftCode,
@@ -1208,6 +1214,154 @@ test('capped referral system validates codes, prevents self-referral, pays once 
   assert.equal(cappedReferrer?.balance, 1500);
   assert.equal(cappedReferrer?.referralEarnedInr, 500);
 });
+
+test('daily check-in enforces verified deposit lock, streak scaling, and play-only balance', () => {
+  const day1Ms = Date.UTC(2026, 10, 24, 10, 0, 0);
+  const day2Ms = day1Ms + 86400000;
+
+  // Unauthenticated cannot claim
+  const guestRes = claimDailyCheckIn(INITIAL_APP_STATE, day1Ms);
+  assert.equal(guestRes.ok, false);
+  if (!guestRes.ok) assert.equal(guestRes.reason, 'unauthenticated');
+
+  // Authenticated without verified deposit is locked
+  const noDepositState: AppState = {
+    ...INITIAL_APP_STATE,
+    isAuthenticated: true,
+    profile: {
+      ...INITIAL_APP_STATE.profile,
+      name: 'New User',
+      email: 'new@test.in',
+      uid: 'UID-NEW1',
+    },
+    registeredAccounts: [
+      {
+        email: 'new@test.in',
+        password: 'password123',
+        name: 'New User',
+        uid: 'UID-NEW1',
+        balance: 0,
+        transactions: [],
+      },
+    ],
+    transactions: [
+      {
+        id: 'tx-pending-dep',
+        type: 'deposit',
+        title: 'UPI Top Up',
+        amount: 500,
+        timestamp: 'Now',
+        status: 'Under Review',
+        credited: false,
+      },
+    ],
+  };
+  assert.equal(hasVerifiedDeposit(noDepositState), false);
+  const lockedRes = claimDailyCheckIn(noDepositState, day1Ms);
+  assert.equal(lockedRes.ok, false);
+  if (!lockedRes.ok) assert.equal(lockedRes.reason, 'deposit_required');
+
+  // With verified deposit, claim succeeds (Day 1 = ₹10), withdrawableBalance stays untouched
+  const fundedState: AppState = {
+    ...noDepositState,
+    balance: 500,
+    withdrawableBalance: 0,
+    transactions: [
+      {
+        id: 'tx-ok-dep',
+        type: 'deposit',
+        title: 'UPI Top Up',
+        amount: 500,
+        timestamp: 'Now',
+        status: 'Credited',
+        credited: true,
+      },
+    ],
+  };
+  assert.equal(hasVerifiedDeposit(fundedState), true);
+  const claimDay1 = claimDailyCheckIn(fundedState, day1Ms);
+  assert.equal(claimDay1.ok, true);
+  if (!claimDay1.ok) return;
+  assert.equal(claimDay1.rewardInr, 10);
+  assert.equal(claimDay1.streak, 1);
+  assert.equal(claimDay1.nextState.balance, 510);
+  assert.equal(claimDay1.nextState.withdrawableBalance, 0);
+  assert.equal(claimDay1.nextState.profile.lastCheckInDate, getDayKey(day1Ms));
+
+  // Same-day repeat claim blocked
+  const repeatSameDay = claimDailyCheckIn(claimDay1.nextState, day1Ms + 3600000);
+  assert.equal(repeatSameDay.ok, false);
+  if (!repeatSameDay.ok) assert.equal(repeatSameDay.reason, 'already_claimed');
+
+  // Next consecutive day increments streak and reward (Day 2 = ₹15)
+  const claimDay2 = claimDailyCheckIn(claimDay1.nextState, day2Ms);
+  assert.equal(claimDay2.ok, true);
+  if (!claimDay2.ok) return;
+  assert.equal(claimDay2.streak, 2);
+  assert.equal(claimDay2.rewardInr, 15);
+  assert.equal(claimDay2.nextState.balance, 525);
+  assert.equal(computeDailyCheckInRewardInr(10, 7), 50);
+  assert.equal(computeDailyCheckInRewardInr(10, 20), 50);
+});
+
+test('changeAccountPassword validates current password and updates registered account', () => {
+  const authed: AppState = {
+    ...INITIAL_APP_STATE,
+    isAuthenticated: true,
+    profile: { ...INITIAL_APP_STATE.profile, email: 'user@test.in', name: 'User' },
+    registeredAccounts: [
+      { email: 'user@test.in', password: 'oldpass1', name: 'User', uid: 'UID-U1' },
+    ],
+  };
+
+  const wrongCurr = changeAccountPassword(authed, {
+    currentPassword: 'wrong',
+    newPassword: 'newpass123',
+  });
+  assert.equal(wrongCurr.ok, false);
+
+  const tooShort = changeAccountPassword(authed, {
+    currentPassword: 'oldpass1',
+    newPassword: '123',
+  });
+  assert.equal(tooShort.ok, false);
+
+  const okRes = changeAccountPassword(authed, {
+    currentPassword: 'oldpass1',
+    newPassword: 'newpass123',
+  });
+  assert.equal(okRes.ok, true);
+  if (!okRes.ok) return;
+  assert.equal(okRes.nextState.registeredAccounts?.[0]?.password, 'newpass123');
+});
+
+test('buildTopTradersLeaderboard returns top 10 sorted descending by realizedPnl', () => {
+  const stateWithBigUser: AppState = {
+    ...INITIAL_APP_STATE,
+    isAuthenticated: true,
+    realizedPnl: 65000,
+    profile: { ...INITIAL_APP_STATE.profile, name: 'StarTrader', email: 'star@test.in', uid: 'UID-STAR1' },
+    registeredAccounts: [
+      {
+        email: 'star@test.in',
+        password: 'pw',
+        name: 'StarTrader',
+        uid: 'UID-STAR1',
+        realizedPnl: 65000,
+      },
+    ],
+  };
+
+  const board = buildTopTradersLeaderboard(stateWithBigUser, 10);
+  assert.equal(board.entries.length, 10);
+  assert.equal(board.entries[0].rank, 1);
+  assert.equal(board.entries[0].name, 'StarTrader');
+  assert.equal(board.entries[0].isCurrentUser, true);
+  for (let i = 1; i < board.entries.length; i += 1) {
+    assert.ok(board.entries[i - 1].realizedPnl >= board.entries[i].realizedPnl);
+  }
+});
+
 
 
 

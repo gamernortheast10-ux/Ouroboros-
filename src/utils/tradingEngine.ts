@@ -2373,4 +2373,318 @@ export function applyGameWalletTransaction(
   return { ok: true, nextState, tx };
 }
 
+export function getDayKey(nowMs = Date.now()): string {
+  return new Date(nowMs).toISOString().slice(0, 10);
+}
+
+export function hasVerifiedDeposit(state: AppState): boolean {
+  const txHasVerifiedDeposit = (txs: WalletTransaction[] | undefined): boolean =>
+    (txs ?? []).some(
+      (tx) =>
+        tx.type === 'deposit' &&
+        (tx.credited === true || tx.status === 'Credited' || tx.status === 'Completed') &&
+        tx.amount > 0
+    );
+
+  if (txHasVerifiedDeposit(state.transactions)) {
+    return true;
+  }
+
+  const cleanEmail = state.profile.email.trim().toLowerCase();
+  if (!cleanEmail) return false;
+  const acc = (state.registeredAccounts ?? []).find(
+    (a) => a.email.trim().toLowerCase() === cleanEmail
+  );
+  if (!acc) return false;
+  if ((acc.totalDepositedInr ?? 0) > 0) return true;
+  return txHasVerifiedDeposit(acc.transactions);
+}
+
+export function computeDailyCheckInRewardInr(
+  baseReward = 10,
+  nextStreak = 1
+): number {
+  const cleanBase = Number.isFinite(baseReward) ? Math.max(1, Math.round(baseReward)) : 10;
+  const streakStepBonuses = [0, 5, 10, 15, 20, 30, 40];
+  const idx = Math.min(streakStepBonuses.length - 1, Math.max(0, nextStreak - 1));
+  const cap = Math.max(50, cleanBase);
+  return Math.min(cap, cleanBase + streakStepBonuses[idx]);
+}
+
+export type DailyCheckInFailReason =
+  | 'unauthenticated'
+  | 'disabled'
+  | 'restricted'
+  | 'deposit_required'
+  | 'already_claimed';
+
+export function claimDailyCheckIn(
+  state: AppState,
+  nowMs = Date.now()
+):
+  | { ok: true; nextState: AppState; rewardInr: number; streak: number }
+  | { ok: false; reason: DailyCheckInFailReason; error: string } {
+  if (!state.isAuthenticated) {
+    return {
+      ok: false,
+      reason: 'unauthenticated',
+      error: 'Please sign in to claim your daily check-in reward.',
+    };
+  }
+
+  const restriction = getCurrentUserRestriction(state);
+  if (restriction.restricted) {
+    return {
+      ok: false,
+      reason: 'restricted',
+      error: `${restriction.banned ? 'Account banned' : 'Account is currently frozen'}${
+        restriction.reason ? `: ${restriction.reason}` : '. Contact Admin support.'
+      }`,
+    };
+  }
+
+  const settings = getEffectivePlatformSettings(state);
+  if (settings.dailyCheckInEnabled === false) {
+    return {
+      ok: false,
+      reason: 'disabled',
+      error: 'Daily check-in rewards are temporarily paused by Owner Desk.',
+    };
+  }
+
+  if (settings.dailyCheckInRequiresDeposit !== false && !hasVerifiedDeposit(state)) {
+    const cfg = getEffectiveReferralConfig(state);
+    return {
+      ok: false,
+      reason: 'deposit_required',
+      error: `Complete at least 1 verified deposit (₹${cfg.minDepositInr}+) to unlock Daily Check-in Rewards.`,
+    };
+  }
+
+  const todayKey = getDayKey(nowMs);
+  const yesterdayKey = getDayKey(nowMs - 86400000);
+  const cleanEmail = state.profile.email.trim().toLowerCase();
+  const currentAcc = cleanEmail
+    ? (state.registeredAccounts ?? []).find(
+        (a) => a.email.trim().toLowerCase() === cleanEmail
+      )
+    : undefined;
+
+  const lastClaimed = state.profile.lastCheckInDate ?? currentAcc?.lastCheckInDate;
+  if (lastClaimed === todayKey) {
+    return {
+      ok: false,
+      reason: 'already_claimed',
+      error: "Today's daily check-in reward has already been claimed. Come back tomorrow!",
+    };
+  }
+
+  const prevStreak = state.profile.checkInStreak ?? currentAcc?.checkInStreak ?? 0;
+  const nextStreak = lastClaimed === yesterdayKey ? prevStreak + 1 : 1;
+  const rewardInr = computeDailyCheckInRewardInr(
+    settings.dailyCheckInBaseReward ?? 10,
+    nextStreak
+  );
+
+  const stamp = formatExactDateTime(nowMs);
+  const tx: WalletTransaction = {
+    id: `tx-checkin-${nowMs}-${Math.random().toString(36).slice(2, 5)}`,
+    type: 'daily_checkin',
+    title: `Daily Check-In (Day ${nextStreak})`,
+    amount: rewardInr,
+    timestamp: stamp,
+    status: 'Credited',
+    meta: 'Play-only daily reward · Deposit-verified',
+    createdAtMs: nowMs,
+    userEmail: cleanEmail || undefined,
+    userName: state.profile.name,
+    userUid: state.profile.uid,
+  };
+
+  const nextBalance = roundMoney(state.balance + rewardInr);
+  const nextTodayReceived = roundMoney(state.todayReceived + rewardInr);
+  const nextTransactions = [tx, ...state.transactions];
+  const nextPlatformTransactions = [tx, ...(state.platformTransactions ?? [])].slice(
+    0,
+    300
+  );
+
+  const nextRegistered = (state.registeredAccounts ?? []).map((acc) => {
+    if (cleanEmail && acc.email.trim().toLowerCase() === cleanEmail) {
+      return {
+        ...acc,
+        balance: nextBalance,
+        todayReceived: nextTodayReceived,
+        lastCheckInDate: todayKey,
+        checkInStreak: nextStreak,
+        transactions: nextTransactions,
+      };
+    }
+    return acc;
+  });
+
+  return {
+    ok: true,
+    rewardInr,
+    streak: nextStreak,
+    nextState: {
+      ...state,
+      balance: nextBalance,
+      // Bonus credits remain locked for play/trading (withdrawableBalance unchanged) so owner never takes free-cash loss.
+      withdrawableBalance: Math.min(nextBalance, state.withdrawableBalance ?? 0),
+      todayReceived: nextTodayReceived,
+      transactions: nextTransactions,
+      platformTransactions: nextPlatformTransactions,
+      registeredAccounts: nextRegistered,
+      profile: {
+        ...state.profile,
+        lastCheckInDate: todayKey,
+        checkInStreak: nextStreak,
+      },
+    },
+  };
+}
+
+export function changeAccountPassword(
+  state: AppState,
+  params: { currentPassword: string; newPassword: string }
+): { ok: true; nextState: AppState } | { ok: false; error: string } {
+  if (!state.isAuthenticated || !state.profile.email.trim()) {
+    return { ok: false, error: 'You must be signed in to change your password.' };
+  }
+  const cleanEmail = state.profile.email.trim().toLowerCase();
+  const accounts = state.registeredAccounts ?? [];
+  const target = accounts.find((a) => a.email.trim().toLowerCase() === cleanEmail);
+  if (!target) {
+    return { ok: false, error: 'Registered account record not found.' };
+  }
+  if (target.password !== params.currentPassword) {
+    return { ok: false, error: 'Current password is incorrect.' };
+  }
+  if (params.newPassword.length < 6) {
+    return { ok: false, error: 'New password must be at least 6 characters.' };
+  }
+  if (params.newPassword === params.currentPassword) {
+    return { ok: false, error: 'New password must be different from your current password.' };
+  }
+
+  return {
+    ok: true,
+    nextState: {
+      ...state,
+      registeredAccounts: accounts.map((acc) =>
+        acc.email.trim().toLowerCase() === cleanEmail
+          ? { ...acc, password: params.newPassword }
+          : acc
+      ),
+    },
+  };
+}
+
+export interface TopTraderEntry {
+  rank: number;
+  name: string;
+  uid: string;
+  realizedPnl: number;
+  winRatePct: number;
+  tradesWon: number;
+  isCurrentUser: boolean;
+  tierName: string;
+}
+
+const SEED_TOP_TRADERS: Omit<TopTraderEntry, 'rank' | 'isCurrentUser'>[] = [
+  { name: 'Vikram_FX', uid: 'UID-8412-VIKRA', realizedPnl: 48250, winRatePct: 78, tradesWon: 142, tierName: 'Sovereign' },
+  { name: 'Riya_Trades', uid: 'UID-7721-RIYAT', realizedPnl: 39640, winRatePct: 74, tradesWon: 118, tierName: 'MVP' },
+  { name: 'Kabir_Alpha', uid: 'UID-6509-KABIR', realizedPnl: 31890, winRatePct: 71, tradesWon: 96, tierName: 'VVIP' },
+  { name: 'Neha_Desk', uid: 'UID-5930-NEHAD', realizedPnl: 26420, winRatePct: 69, tradesWon: 84, tierName: 'VVIP' },
+  { name: 'Arjun99', uid: 'UID-4481-ARJUN', realizedPnl: 21150, winRatePct: 67, tradesWon: 73, tierName: 'VIP' },
+  { name: 'Siddharth_IN', uid: 'UID-3902-SIDDH', realizedPnl: 16800, winRatePct: 65, tradesWon: 61, tierName: 'VIP' },
+  { name: 'Ananya_Pro', uid: 'UID-3124-ANANY', realizedPnl: 12950, winRatePct: 64, tradesWon: 54, tierName: 'Extraordinary' },
+  { name: 'Devansh_X', uid: 'UID-2845-DEVAN', realizedPnl: 9420, winRatePct: 62, tradesWon: 43, tierName: 'Extraordinary' },
+  { name: 'Meera_Quant', uid: 'UID-2190-MEERA', realizedPnl: 6850, winRatePct: 61, tradesWon: 37, tierName: 'Ordinary' },
+  { name: 'Rohan_V', uid: 'UID-1840-ROHAN', realizedPnl: 4320, winRatePct: 59, tradesWon: 29, tierName: 'Ordinary' },
+];
+
+export function buildTopTradersLeaderboard(
+  state: AppState,
+  limit = 10
+): { entries: TopTraderEntry[]; currentUserEntry: TopTraderEntry | null } {
+  const activeEmail = state.isAuthenticated
+    ? state.profile.email.trim().toLowerCase()
+    : '';
+
+  const candidates = new Map<string, Omit<TopTraderEntry, 'rank'>>();
+
+  for (const seed of SEED_TOP_TRADERS) {
+    candidates.set(seed.uid, { ...seed, isCurrentUser: false });
+  }
+
+  for (const acc of state.registeredAccounts ?? []) {
+    if (acc.banned) continue;
+    const accEmail = acc.email.trim().toLowerCase();
+    const isCurrent = Boolean(activeEmail && accEmail === activeEmail);
+    const pnl = roundMoney(isCurrent ? state.realizedPnl : acc.realizedPnl ?? 0);
+    const positions = isCurrent ? state.positions : acc.positions ?? [];
+    const bets = isCurrent ? state.bets : acc.bets ?? [];
+    const closedPos = positions.filter((p) => p.status === 'closed');
+    const settledBets = bets.filter((b) => b.status === 'won' || b.status === 'lost');
+    const wonPos = closedPos.filter((p) => (p.realizedPnl ?? 0) > 0).length;
+    const wonBets = settledBets.filter((b) => b.status === 'won').length;
+    const totalSettled = closedPos.length + settledBets.length;
+    const tradesWon = wonPos + wonBets;
+    const winRatePct =
+      totalSettled > 0 ? Math.round((tradesWon / totalSettled) * 100) : pnl > 0 ? 60 : 0;
+
+    const spent = isCurrent
+      ? calculateTotalSpent(state)
+      : Math.max(0, Math.abs(pnl));
+    const tierName = calculatePlayerLevel(spent).current.name;
+
+    const key = acc.uid || accEmail || acc.name;
+    candidates.set(key, {
+      name: isCurrent ? state.profile.name : acc.name,
+      uid: acc.uid || key,
+      realizedPnl: pnl,
+      winRatePct,
+      tradesWon,
+      isCurrentUser: isCurrent,
+      tierName,
+    });
+  }
+
+  // Also include active authenticated session if not yet in registeredAccounts
+  if (activeEmail && !Array.from(candidates.values()).some((c) => c.isCurrentUser)) {
+    const key = state.profile.uid || activeEmail;
+    const closedPos = state.positions.filter((p) => p.status === 'closed');
+    const settledBets = state.bets.filter((b) => b.status === 'won' || b.status === 'lost');
+    const tradesWon =
+      closedPos.filter((p) => (p.realizedPnl ?? 0) > 0).length +
+      settledBets.filter((b) => b.status === 'won').length;
+    const totalSettled = closedPos.length + settledBets.length;
+    candidates.set(key, {
+      name: state.profile.name,
+      uid: state.profile.uid,
+      realizedPnl: roundMoney(state.realizedPnl),
+      winRatePct: totalSettled > 0 ? Math.round((tradesWon / totalSettled) * 100) : 0,
+      tradesWon,
+      isCurrentUser: true,
+      tierName: calculatePlayerLevel(calculateTotalSpent(state)).current.name,
+    });
+  }
+
+  const sorted: TopTraderEntry[] = Array.from(candidates.values())
+    .sort((a, b) => b.realizedPnl - a.realizedPnl || b.tradesWon - a.tradesWon)
+    .map((entry, idx) => ({
+      ...entry,
+      rank: idx + 1,
+    }));
+
+  const currentUserEntry = sorted.find((e) => e.isCurrentUser) ?? null;
+  return {
+    entries: sorted.slice(0, Math.max(1, limit)),
+    currentUserEntry,
+  };
+}
+
+
 
