@@ -23,6 +23,7 @@ interface AuthViewProps {
   signupsPaused?: boolean;
   maintenanceNotice?: string;
   onClose?: () => void;
+  onOpenTerms?: () => void;
   onLogin: (params: {
     email: string;
     password: string;
@@ -43,6 +44,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   signupsPaused = false,
   maintenanceNotice = '',
   onClose,
+  onOpenTerms,
   onLogin,
   onSignup,
 }) => {
@@ -68,6 +70,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [referralCode, setReferralCode] = useState(initialUrlRef);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [typingField, setTypingField] = useState<string | null>(null);
 
   const pulseTyping = (field: string) => {
@@ -96,6 +99,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
     if (password.length < 6) {
       setError('Password must be at least 6 characters.');
+      return;
+    }
+
+    if (!acceptedTerms) {
+      setError('Please accept the Terms & Conditions to continue.');
       return;
     }
 
@@ -500,6 +508,45 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 </div>
               </div>
             )}
+
+            <label
+              className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-[11.5px] leading-snug cursor-pointer select-none ${
+                isLight
+                  ? 'bg-[#f8f6ff] border-purple-200/80 text-slate-700'
+                  : 'bg-[#181826] border-white/10 text-slate-300'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => {
+                  setAcceptedTerms(e.target.checked);
+                  setError('');
+                }}
+                aria-label="Accept Terms and Conditions"
+                className="mt-0.5 w-4 h-4 rounded accent-[#7c3aed] shrink-0 cursor-pointer"
+              />
+              <span>
+                I accept the{' '}
+                {onOpenTerms ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onOpenTerms();
+                    }}
+                    className={`font-bold underline ${
+                      isLight ? 'text-[#6d28d9]' : 'text-[#a78bfa]'
+                    }`}
+                  >
+                    Terms &amp; Conditions
+                  </button>
+                ) : (
+                  <span className="font-bold">Terms &amp; Conditions</span>
+                )}{' '}
+                and participate voluntarily at my own discretion &amp; risk.
+              </span>
+            </label>
 
             {error && (
               <p

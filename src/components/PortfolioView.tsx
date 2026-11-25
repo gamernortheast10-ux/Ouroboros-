@@ -26,7 +26,6 @@ interface PortfolioViewProps {
   state: AppState;
   nowMs?: number;
   onClosePosition: (positionId: string) => void;
-  onSettleBet: (betId: string, won: boolean) => void;
   onExploreMarkets: () => void;
   onDeposit?: () => void;
   onWithdraw?: () => void;
@@ -126,7 +125,6 @@ export const PortfolioView: React.FC<PortfolioViewProps> = ({
   state,
   nowMs,
   onClosePosition,
-  onSettleBet,
   onExploreMarkets,
   onDeposit,
   onWithdraw,
@@ -536,26 +534,41 @@ export const PortfolioView: React.FC<PortfolioViewProps> = ({
                         {formatCurrency(bet.stake * bet.multiplier, currency, fxRates)}
                       </span>
                       {bet.status === 'open' ? (
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 font-semibold text-[11px]">
-                            <Clock className="w-3 h-3" />
-                            Pending
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => onSettleBet(bet.id, true)}
-                            className="btn-press px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/35 text-emerald-400 font-semibold text-[11px]"
-                          >
-                            Settle Win
-                          </button>
-                        </div>
-                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 font-semibold text-[11px]">
+                          <Clock className="w-3 h-3" />
+                          Pending Live Web Result
+                        </span>
+                      ) : bet.status === 'won' ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 font-semibold text-[11px]">
                           <CheckCircle2 className="w-3 h-3" />
-                          Settled {formatCurrency(bet.payout ?? 0, currency, fxRates)}
+                          Won {formatCurrency(bet.payout ?? 0, currency, fxRates)}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-400 font-semibold text-[11px]">
+                          Settled ₹0
                         </span>
                       )}
                     </div>
+                    {bet.resolutionSummary && (
+                      <div className="rounded-xl bg-black/25 border border-white/[0.06] p-2.5 text-[11px] text-slate-300 space-y-1">
+                        <p>{bet.resolutionSummary}</p>
+                        {bet.resolutionSources && bet.resolutionSources.length > 0 && (
+                          <div className="flex flex-wrap gap-2 pt-0.5">
+                            {bet.resolutionSources.slice(0, 3).map((src, idx) => (
+                              <a
+                                key={`${src.uri}-${idx}`}
+                                href={src.uri}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10.5px] font-semibold text-[#a78bfa] hover:underline"
+                              >
+                                {src.title || 'Verified Source'} ↗
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

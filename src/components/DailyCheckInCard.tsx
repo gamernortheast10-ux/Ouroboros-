@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { CalendarCheck2, CheckCircle2, Flame, Lock, Sparkles } from 'lucide-react';
+import { ArrowRight, CalendarCheck2, CheckCircle2, Lock } from 'lucide-react';
 import { AppState } from '../types/trading';
 import {
   computeDailyCheckInRewardInr,
@@ -66,8 +66,8 @@ export const DailyCheckInCard: React.FC<DailyCheckInCardProps> = ({
     >
       <div className="flex items-start justify-between gap-2.5">
         <div className="flex items-center gap-2.5 min-w-0">
-          <span className="preserve-white w-9 h-9 rounded-xl bg-gradient-to-br from-[#8b5cf6] to-[#6d28d9] text-white flex items-center justify-center shadow-[0_6px_16px_rgba(124,58,237,0.35)] shrink-0">
-            <CalendarCheck2 className="w-4.5 h-4.5" />
+          <span className="w-9 h-9 rounded-xl bg-[#7c3aed]/15 border border-[#8b5cf6]/30 text-[#a78bfa] flex items-center justify-center shrink-0">
+            <CalendarCheck2 className="w-4 h-4" />
           </span>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -75,14 +75,13 @@ export const DailyCheckInCard: React.FC<DailyCheckInCardProps> = ({
                 Daily Check-In
               </h2>
               {activeStreak > 0 && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-[10px] font-bold text-amber-300 font-mono-nums">
-                  <Flame className="w-3 h-3" />
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-[10px] font-bold text-amber-300 font-mono-nums">
                   {activeStreak}d streak
                 </span>
               )}
             </div>
             <p className="text-[11px] text-[#94a3b8] mt-0.5">
-              Earn ₹{baseReward}–₹50 daily play bonus · Zero-risk deposit gated
+              Earn ₹{baseReward}–₹50 daily play bonus · Deposit gated
             </p>
           </div>
         </div>
@@ -129,8 +128,8 @@ export const DailyCheckInCard: React.FC<DailyCheckInCardProps> = ({
             onClick={onSignInPrompt}
             className="preserve-white btn-press min-h-[38px] px-4 rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] text-white text-xs font-extrabold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            Sign In to Claim
+            <span>Sign In to Claim</span>
+            <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
       ) : lockedByDeposit ? (
@@ -164,11 +163,12 @@ export const DailyCheckInCard: React.FC<DailyCheckInCardProps> = ({
           type="button"
           id="claim-daily-checkin-btn"
           onClick={onClaimDailyCheckIn}
-          className="preserve-white btn-press w-full min-h-[42px] rounded-xl text-white text-xs font-extrabold inline-flex items-center justify-center gap-2 shadow-[0_6px_18px_rgba(124,58,237,0.35)]"
-          style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)' }}
+          className="preserve-white btn-press w-full min-h-[42px] px-4 rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] border border-[#8b5cf6]/40 text-white text-xs font-extrabold inline-flex items-center justify-center gap-2"
         >
-          <Sparkles className="w-4 h-4" />
-          Claim Day {nextStreakDay} Reward (+{formatCurrency(todayRewardInr, currency, fxRates)})
+          <span>
+            Claim Day {nextStreakDay} Reward (+{formatCurrency(todayRewardInr, currency, fxRates)})
+          </span>
+          <ArrowRight className="w-3.5 h-3.5" />
         </button>
       )}
     </section>

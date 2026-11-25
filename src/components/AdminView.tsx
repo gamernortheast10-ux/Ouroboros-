@@ -10,8 +10,11 @@ import {
   Coins,
   Copy,
   Gift,
+  Globe,
   Headphones,
   Lock,
+  Mic,
+  MicOff,
   PauseCircle,
   PlayCircle,
   Plus,
@@ -23,6 +26,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Smartphone,
+  Sparkles,
   Trash2,
   TrendingUp,
   Unlock,
@@ -40,13 +44,16 @@ import {
   AppState,
   BroadcastCategory,
   CustomGiftCode,
+  MarketCategory,
   PlatformSettings,
   ReferralConfig,
   SupportTicket,
   WalletTransaction,
 } from '../types/trading';
 import {
+  OwnerPredictionDraft,
   computeAdminPlatformSummary,
+  computeGiftCodeClaimAmount,
   formatCurrency,
   getEffectivePlatformSettings,
   getEffectiveReferralConfig,
@@ -85,6 +92,13 @@ interface AdminViewProps {
   onUpdateAssetPrice: (assetId: string, nextPrice: number) => void;
   onAddGiftCode: (gift: CustomGiftCode) => void;
   onToggleGiftCode: (code: string) => void;
+  onCreatePredictionMarket?: (draft: OwnerPredictionDraft) => void;
+  onResolvePredictionMarket?: (params: {
+    marketId: string;
+    outcome: 'yes' | 'no';
+    summary: string;
+    sources?: Array<{ title: string; uri: string }>;
+  }) => void;
 }
 
 type AdminSection =
@@ -119,6 +133,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onUpdateAssetPrice,
   onAddGiftCode,
   onToggleGiftCode,
+  onCreatePredictionMarket,
+  onResolvePredictionMarket,
 }) => {
   // Defense-in-depth owner lock
   if (!isOwnerAdmin(state.profile.email)) {
@@ -157,10 +173,33 @@ export const AdminView: React.FC<AdminViewProps> = ({
   // Tickets screenshot modal
   const [previewTicketImage, setPreviewTicketImage] = useState<string | null>(null);
 
-  // Gift Code creator
+  // Progressive Gift Code creator
   const [newGiftCode, setNewGiftCode] = useState('');
-  const [newGiftAmount, setNewGiftAmount] = useState('250');
+  const [newGiftAmount, setNewGiftAmount] = useState('100');
+  const [newGiftStepDecrease, setNewGiftStepDecrease] = useState('10');
+  const [newGiftMinAmount, setNewGiftMinAmount] = useState('20');
+  const [newGiftMaxClaims, setNewGiftMaxClaims] = useState('10');
   const [newGiftLabel, setNewGiftLabel] = useState('Owner Special Drop');
+
+  // Voice-Command Bet Studio & Live Web Auto-Settlement
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceError, setVoiceError] = useState('');
+  const [draftQuestion, setDraftQuestion] = useState('');
+  const [draftCategory, setDraftCategory] = useState<Exclude<MarketCategory, 'All Markets'>>('Political');
+  const [draftSubLabel, setDraftSubLabel] = useState('India Politics');
+  const [draftEndLabel, setDraftEndLabel] = useState('Live Web Settled');
+  const [draftEndsHours, setDraftEndsHours] = useState('24');
+  const [draftCriteria, setDraftCriteria] = useState('');
+  const [resolvingMarketId, setResolvingMarketId] = useState<string | null>(null);
+  const [resolveFeedback, setResolveFeedback] = useState<{
+    marketId: string;
+    status: string;
+    summary: string;
+    sources?: Array<{ title: string; uri: string }>;
+  } | null>(null);
+  const recognitionRef = React.useRef<{ stop: () => void } | null>(null);
 
   // Multi-UPI Gateway creator
   const [newUpiLabel, setNewUpiLabel] = useState('');
@@ -311,15 +350,204 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const handleCreateGiftCode = (e: React.FormEvent) => {
     e.preventDefault();
     const clean = newGiftCode.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
-    const amt = Number(newGiftAmount);
-    if (!clean || !Number.isFinite(amt) || amt <= 0) return;
+    const initialAmt = Math.max(1, Math.round((Number(newGiftAmount) || 0) * 100) / 100);
+    const stepDec = Math.max(0, Math.round((Number(newGiftStepDecrease) || 0) * 100) / 100);
+    const minFloor = Math.max(
+      1,
+      Math.min(initialAmt, Math.round((Number(newGiftMinAmount) || 1) * 100) / 100)
+    );
+    const maxUsers = Math.max(1, Math.floor(Number(newGiftMaxClaims) || 1));
+    if (!clean || !Number.isFinite(initialAmt) || initialAmt <= 0) return;
     onAddGiftCode({
       code: clean,
-      amount: Math.round(amt * 100) / 100,
+      amount: initialAmt,
+      initialAmount: initialAmt,
+      stepDecreaseInr: stepDec,
+      minAmount: minFloor,
+      maxClaims: maxUsers,
+      claimsCount: 0,
+      claimedByEmails: [],
       label: newGiftLabel.trim() || 'Owner Reward Code',
       active: true,
     });
     setNewGiftCode('');
+  };
+
+  const handleToggleVoiceMic = () => {
+    setVoiceError('');
+    if (voiceListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setVoiceListening(false);
+      return;
+    }
+    const win = window as unknown as {
+      SpeechRecognition?: new () => {
+        lang: string;
+        interimResults: boolean;
+        continuous: boolean;
+        onresult: ((ev: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+        onerror: ((ev: { error?: string }) => void) | null;
+        onend: (() => void) | null;
+        start: () => void;
+        stop: () => void;
+      };
+      webkitSpeechRecognition?: new () => {
+        lang: string;
+        interimResults: boolean;
+        continuous: boolean;
+        onresult: ((ev: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+        onerror: ((ev: { error?: string }) => void) | null;
+        onend: (() => void) | null;
+        start: () => void;
+        stop: () => void;
+      };
+    };
+    const SpeechRec = win.SpeechRecognition || win.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      setVoiceError('Browser microphone speech API unavailable here — type your command below.');
+      return;
+    }
+    try {
+      const rec = new SpeechRec();
+      rec.lang = 'en-IN';
+      rec.interimResults = true;
+      rec.continuous = false;
+      rec.onresult = (ev) => {
+        const parts: string[] = [];
+        for (let i = 0; i < ev.results.length; i += 1) {
+          parts.push(ev.results[i][0]?.transcript ?? '');
+        }
+        setVoiceTranscript(parts.join(' ').trim());
+      };
+      rec.onerror = (ev) => {
+        setVoiceError(`Mic error: ${ev.error || 'permission denied'}`);
+        setVoiceListening(false);
+      };
+      rec.onend = () => {
+        setVoiceListening(false);
+      };
+      recognitionRef.current = rec;
+      rec.start();
+      setVoiceListening(true);
+    } catch {
+      setVoiceError('Unable to start microphone.');
+      setVoiceListening(false);
+    }
+  };
+
+  const handleParseVoiceCommand = async () => {
+    const clean = voiceTranscript.trim();
+    if (clean.length < 4) {
+      setVoiceError('Speak or enter a voice command first (e.g. "Agle election mein kaun PM banega Amit Shah Yes or No").');
+      return;
+    }
+    setVoiceError('');
+    setVoiceBusy(true);
+    try {
+      const resp = await fetch('/api/admin/parse-voice-bet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript: clean,
+          ownerEmail: state.profile.email,
+        }),
+      });
+      const data = await resp.json();
+      const draft = data?.draft ?? data;
+      if (!resp.ok || !draft?.question) {
+        setVoiceError(data?.error || 'Could not parse voice command.');
+        return;
+      }
+      setDraftQuestion(String(draft.question || ''));
+      const rawCat = String(draft.category || 'Political');
+      setDraftCategory(
+        rawCat === 'Sports' ||
+          rawCat === 'Crypto' ||
+          rawCat === 'Famous Games' ||
+          rawCat === 'Mobile Brands' ||
+          rawCat === 'Political'
+          ? rawCat
+          : 'Political'
+      );
+      setDraftSubLabel(String(draft.subLabel || 'Owner Desk'));
+      setDraftEndLabel(String(draft.endLabel || 'Live Web Settled'));
+      const hrs = Math.max(1, Math.round((Number(draft.endsInSeconds) || 86400) / 3600));
+      setDraftEndsHours(String(hrs));
+      setDraftCriteria(String(draft.resolutionCriteria || ''));
+    } catch {
+      setVoiceError('Network error calling voice bet parser.');
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  const handlePublishVoiceMarket = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!draftQuestion.trim() || !onCreatePredictionMarket) return;
+    onCreatePredictionMarket({
+      question: draftQuestion.trim(),
+      category: draftCategory,
+      subLabel: draftSubLabel.trim() || `${draftCategory} · Owner Desk`,
+      endLabel: draftEndLabel.trim() || 'Live Web Settled',
+      endsInSeconds: Math.max(300, (Number(draftEndsHours) || 24) * 3600),
+      resolutionCriteria: draftCriteria.trim() || undefined,
+    });
+    setDraftQuestion('');
+    setDraftCriteria('');
+    setVoiceTranscript('');
+  };
+
+  const handleCheckLiveWebAndSettle = async (marketId: string) => {
+    const market = state.predictions.find((m) => m.id === marketId);
+    if (!market) return;
+    setResolvingMarketId(marketId);
+    setResolveFeedback(null);
+    try {
+      const resp = await fetch('/api/admin/resolve-prediction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ownerEmail: state.profile.email,
+          market: {
+            id: market.id,
+            question: market.question,
+            subLabel: market.subLabel,
+            resolutionCriteria: market.resolutionCriteria,
+          },
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        setResolveFeedback({
+          marketId,
+          status: 'error',
+          summary: data?.error || 'Live web verification failed.',
+        });
+        return;
+      }
+      if (data.outcome === 'yes' || data.outcome === 'no') {
+        onResolvePredictionMarket?.({
+          marketId: market.id,
+          outcome: data.outcome,
+          summary: String(data.summary || `Verified live outcome: ${data.outcome.toUpperCase()}`),
+          sources: Array.isArray(data.sources) ? data.sources : [],
+        });
+      }
+      setResolveFeedback({
+        marketId,
+        status: String(data.outcome || 'pending'),
+        summary: String(data.summary || ''),
+        sources: Array.isArray(data.sources) ? data.sources : [],
+      });
+    } catch {
+      setResolveFeedback({
+        marketId,
+        status: 'error',
+        summary: 'Network error reaching live web settlement verifier.',
+      });
+    } finally {
+      setResolvingMarketId(null);
+    }
   };
 
   const handleSendBroadcast = (e: React.FormEvent) => {
@@ -1903,82 +2131,324 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </section>
           )}
 
-          {/* PANEL 7: Market Assets & Gift Codes */}
+          {/* PANEL 7: Voice Bet Studio, Live Web Settlement & Progressive Gift Codes */}
           {activeSection === 'markets' && (
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+              {/* Owner Voice-Command Bet Studio & Live Web Auto-Settlement */}
+              <section className="xl:col-span-12 rounded-2xl bg-[#13131f] border border-white/[0.08] p-4 sm:p-5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-base font-bold text-white inline-flex items-center gap-2">
+                      <Mic className="w-4 h-4 text-[#a78bfa]" />
+                      Owner Voice-Command Bet Studio &amp; Live Web Settlement
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Dictate any new Yes/No prediction by voice or text, publish live, and auto-settle via live web verification with automatic commission payout.
+                    </p>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-full bg-[#7c3aed]/20 border border-[#7c3aed]/40 text-[10.5px] font-bold text-[#c4b5fd]">
+                    Owner Exclusive Settlement
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                  {/* Left: Voice Dictation & Draft Form */}
+                  <div className="lg:col-span-6 space-y-3 rounded-xl bg-[#191928] border border-white/[0.07] p-3.5">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleToggleVoiceMic}
+                        data-testid="admin-voice-mic-btn"
+                        className={`preserve-white btn-press h-10 px-3.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shrink-0 ${
+                          voiceListening
+                            ? 'bg-rose-600 hover:bg-rose-500 text-white animate-pulse'
+                            : 'bg-[#7c3aed] hover:bg-[#6d28d9] text-white'
+                        }`}
+                      >
+                        {voiceListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                        {voiceListening ? 'Stop Mic' : 'Speak Command'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={voiceBusy}
+                        onClick={handleParseVoiceCommand}
+                        data-testid="admin-voice-parse-btn"
+                        className="btn-press h-10 px-3.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/35 border border-emerald-500/35 text-emerald-300 text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        {voiceBusy ? 'Drafting...' : 'Draft Bet with AI'}
+                      </button>
+                    </div>
+
+                    <textarea
+                      rows={2}
+                      value={voiceTranscript}
+                      onChange={(e) => {
+                        setVoiceTranscript(e.target.value);
+                        setVoiceError('');
+                      }}
+                      placeholder='Dictate or type: "Agle election mein kaun PM banega Amit Shah yes ya no"...'
+                      aria-label="Voice command transcript"
+                      className="w-full p-3 rounded-xl bg-[#13131f] border border-white/10 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-[#7c3aed]"
+                    />
+
+                    {voiceError && (
+                      <p role="alert" className="text-[11px] text-rose-400">
+                        {voiceError}
+                      </p>
+                    )}
+
+                    <form onSubmit={handlePublishVoiceMarket} className="space-y-2.5 pt-1 border-t border-white/[0.06]">
+                      <input
+                        type="text"
+                        required
+                        placeholder="Prediction Yes/No Question..."
+                        value={draftQuestion}
+                        onChange={(e) => setDraftQuestion(e.target.value)}
+                        className="w-full h-10 px-3 rounded-xl bg-[#13131f] border border-white/10 text-xs font-semibold text-white focus:outline-none focus:border-[#7c3aed]"
+                      />
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        <select
+                          value={draftCategory}
+                          onChange={(e) =>
+                            setDraftCategory(
+                              e.target.value as Exclude<MarketCategory, 'All Markets'>
+                            )
+                          }
+                          className="h-9 px-2.5 rounded-xl bg-[#13131f] border border-white/10 text-xs text-white focus:outline-none"
+                        >
+                          <option value="Political">Political</option>
+                          <option value="Sports">Sports</option>
+                          <option value="Crypto">Crypto</option>
+                          <option value="Famous Games">Famous Games</option>
+                          <option value="Mobile Brands">Mobile Brands</option>
+                        </select>
+                        <input
+                          type="text"
+                          placeholder="Sub-label"
+                          value={draftSubLabel}
+                          onChange={(e) => setDraftSubLabel(e.target.value)}
+                          className="h-9 px-2.5 rounded-xl bg-[#13131f] border border-white/10 text-xs text-white focus:outline-none"
+                        />
+                        <input
+                          type="number"
+                          min={1}
+                          placeholder="Hours"
+                          value={draftEndsHours}
+                          onChange={(e) => setDraftEndsHours(e.target.value)}
+                          className="h-9 px-2.5 rounded-xl bg-[#13131f] border border-white/10 text-xs font-mono-nums text-white focus:outline-none"
+                        />
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Resolution criteria (used by Live Web check)..."
+                        value={draftCriteria}
+                        onChange={(e) => setDraftCriteria(e.target.value)}
+                        className="w-full h-9 px-3 rounded-xl bg-[#13131f] border border-white/10 text-[11px] text-slate-200 focus:outline-none"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!draftQuestion.trim()}
+                        data-testid="admin-publish-bet-btn"
+                        className="preserve-white btn-press w-full h-10 rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] disabled:opacity-40 text-white text-xs font-extrabold inline-flex items-center justify-center gap-1.5"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Publish Live Prediction Bet
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Right: Live Markets + Web Auto-Settle */}
+                  <div className="lg:col-span-6 space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
+                    {state.predictions.map((mkt) => {
+                      const isBusy = resolvingMarketId === mkt.id;
+                      const fb = resolveFeedback?.marketId === mkt.id ? resolveFeedback : null;
+                      return (
+                        <div
+                          key={mkt.id}
+                          className="rounded-xl bg-[#191928] border border-white/[0.07] p-3 space-y-2"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-[10.5px] font-bold text-[#a78bfa]">
+                                {mkt.category} · {mkt.subLabel}
+                              </div>
+                              <div className="text-xs font-bold text-white leading-snug mt-0.5">
+                                {mkt.question}
+                              </div>
+                            </div>
+                            {mkt.resolvedOutcome ? (
+                              <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 text-[10.5px] font-extrabold shrink-0">
+                                SETTLED: {mkt.resolvedOutcome.toUpperCase()}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => void handleCheckLiveWebAndSettle(mkt.id)}
+                                data-testid={`admin-resolve-btn-${mkt.id}`}
+                                className="btn-press px-2.5 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/35 border border-sky-500/35 text-sky-300 text-[11px] font-bold inline-flex items-center gap-1 shrink-0 disabled:opacity-50"
+                              >
+                                <Globe className="w-3 h-3" />
+                                {isBusy ? 'Checking Web...' : 'Check Live Web & Auto-Settle'}
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="text-[11px] font-mono-nums text-slate-400">
+                            YES Pool ₹{mkt.yesPool.toLocaleString('en-IN')} ({mkt.yesBettors}) · NO Pool ₹
+                            {mkt.noPool.toLocaleString('en-IN')} ({mkt.noBettors})
+                          </div>
+
+                          {(fb || mkt.resolutionSummary) && (
+                            <div className="rounded-lg bg-[#13131f] border border-white/[0.06] p-2 text-[11px] text-slate-300 space-y-1">
+                              <p>{fb?.summary || mkt.resolutionSummary}</p>
+                              {(fb?.sources || mkt.resolutionSources)?.length ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {(fb?.sources || mkt.resolutionSources || []).slice(0, 3).map((s, idx) => (
+                                    <a
+                                      key={`${s.uri}-${idx}`}
+                                      href={s.uri}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-[10.5px] font-semibold text-[#a78bfa] hover:underline"
+                                    >
+                                      {s.title || 'Web Source'} ↗
+                                    </a>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </section>
+
               <section className="xl:col-span-6 rounded-2xl bg-[#13131f] border border-white/[0.08] p-4 sm:p-5 space-y-4">
-                <h2 className="text-base font-bold text-white inline-flex items-center gap-2">
-                  <Gift className="w-4 h-4 text-[#a78bfa]" />
-                  Create &amp; Manage Custom Gift Codes
-                </h2>
+                <div>
+                  <h2 className="text-base font-bold text-white inline-flex items-center gap-2">
+                    <Gift className="w-4 h-4 text-[#a78bfa]" />
+                    Owner Progressive Gift Codes
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Only codes created here are active. Configure max user claims and step-down payout reduction per claim.
+                  </p>
+                </div>
 
                 <form onSubmit={handleCreateGiftCode} className="space-y-2.5">
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <input
-                      type="text"
-                      placeholder="Code (e.g. BONUS300)"
-                      value={newGiftCode}
-                      onChange={(e) => setNewGiftCode(e.target.value.toUpperCase())}
-                      className="h-10 px-3 rounded-xl bg-[#191928] border border-white/10 text-xs font-mono-nums font-bold text-white uppercase focus:outline-none focus:border-[#7c3aed]"
-                    />
-                    <input
-                      type="number"
-                      min={10}
-                      placeholder="Amount ₹"
-                      value={newGiftAmount}
-                      onChange={(e) => setNewGiftAmount(e.target.value)}
-                      className="h-10 px-3 rounded-xl bg-[#191928] border border-white/10 text-xs font-mono-nums text-white focus:outline-none focus:border-[#7c3aed]"
-                    />
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <label className="block">
+                      <span className="text-[10px] font-semibold text-slate-400">Code</span>
+                      <input
+                        type="text"
+                        placeholder="DROP100"
+                        value={newGiftCode}
+                        onChange={(e) => setNewGiftCode(e.target.value.toUpperCase())}
+                        className="mt-1 w-full h-9 px-3 rounded-xl bg-[#191928] border border-white/10 text-xs font-mono-nums font-bold text-white uppercase focus:outline-none focus:border-[#7c3aed]"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] font-semibold text-slate-400">Initial ₹</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={newGiftAmount}
+                        onChange={(e) => setNewGiftAmount(e.target.value)}
+                        className="mt-1 w-full h-9 px-3 rounded-xl bg-[#191928] border border-white/10 text-xs font-mono-nums text-white focus:outline-none focus:border-[#7c3aed]"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] font-semibold text-slate-400">Decrease/Claim ₹</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={newGiftStepDecrease}
+                        onChange={(e) => setNewGiftStepDecrease(e.target.value)}
+                        className="mt-1 w-full h-9 px-3 rounded-xl bg-[#191928] border border-white/10 text-xs font-mono-nums text-white focus:outline-none focus:border-[#7c3aed]"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] font-semibold text-slate-400">Min Floor ₹</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={newGiftMinAmount}
+                        onChange={(e) => setNewGiftMinAmount(e.target.value)}
+                        className="mt-1 w-full h-9 px-3 rounded-xl bg-[#191928] border border-white/10 text-xs font-mono-nums text-white focus:outline-none focus:border-[#7c3aed]"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] font-semibold text-slate-400">Max Users</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={newGiftMaxClaims}
+                        onChange={(e) => setNewGiftMaxClaims(e.target.value)}
+                        className="mt-1 w-full h-9 px-3 rounded-xl bg-[#191928] border border-white/10 text-xs font-mono-nums text-white focus:outline-none focus:border-[#7c3aed]"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] font-semibold text-slate-400">Campaign Label</span>
+                      <input
+                        type="text"
+                        placeholder="Label"
+                        value={newGiftLabel}
+                        onChange={(e) => setNewGiftLabel(e.target.value)}
+                        className="mt-1 w-full h-9 px-3 rounded-xl bg-[#191928] border border-white/10 text-xs text-white focus:outline-none focus:border-[#7c3aed]"
+                      />
+                    </label>
                   </div>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="Label / campaign note"
-                      value={newGiftLabel}
-                      onChange={(e) => setNewGiftLabel(e.target.value)}
-                      className="flex-1 h-10 px-3 rounded-xl bg-[#191928] border border-white/10 text-xs text-white focus:outline-none focus:border-[#7c3aed]"
-                    />
-                    <button
-                      type="submit"
-                      className="preserve-white btn-press h-10 px-4 rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] text-white text-xs font-bold inline-flex items-center gap-1 whitespace-nowrap shrink-0"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Add Code
-                    </button>
-                  </div>
+                  <button
+                    type="submit"
+                    className="preserve-white btn-press w-full h-10 px-4 rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Create Progressive Gift Code
+                  </button>
                 </form>
 
                 <div className="space-y-2">
                   {(state.customGiftCodes ?? []).length === 0 ? (
-                    <p className="text-xs text-slate-400">
-                      Built-in codes active: OURO500, WELCOME250, VIP1000, TRADE100. Add custom
-                      codes above.
+                    <p className="text-xs text-slate-400 rounded-xl bg-[#191928] border border-dashed border-white/10 p-3">
+                      No gift codes active right now. Create one above to release a progressive gift drop.
                     </p>
                   ) : (
-                    (state.customGiftCodes ?? []).map((g) => (
-                      <div
-                        key={g.code}
-                        className="p-3 rounded-xl bg-[#191928] border border-white/[0.06] flex items-center justify-between gap-2"
-                      >
-                        <div>
-                          <div className="text-xs font-extrabold font-mono-nums text-white">
-                            {g.code} · ₹{g.amount}
-                          </div>
-                          <div className="text-[11px] text-slate-400">{g.label}</div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => onToggleGiftCode(g.code)}
-                          className={`btn-press px-3 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap ${
-                            g.active
-                              ? 'bg-emerald-500/20 text-emerald-300'
-                              : 'bg-slate-500/20 text-slate-400'
-                          }`}
+                    (state.customGiftCodes ?? []).map((g) => {
+                      const nextPayout = computeGiftCodeClaimAmount(g);
+                      const claimed = g.claimsCount ?? 0;
+                      const maxC = g.maxClaims ?? 0;
+                      return (
+                        <div
+                          key={g.code}
+                          className="p-3 rounded-xl bg-[#191928] border border-white/[0.06] flex items-center justify-between gap-2"
                         >
-                          {g.active ? 'Active' : 'Paused'}
-                        </button>
-                      </div>
-                    ))
+                          <div className="min-w-0">
+                            <div className="text-xs font-extrabold font-mono-nums text-white">
+                              {g.code} · Next Payout ₹{nextPayout}
+                            </div>
+                            <div className="text-[11px] text-slate-400">
+                              {g.label} · Claimed {claimed}
+                              {maxC > 0 ? `/${maxC}` : ''} · Step -₹{g.stepDecreaseInr ?? 0} (Min ₹
+                              {g.minAmount ?? 1})
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onToggleGiftCode(g.code)}
+                            className={`btn-press px-3 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap shrink-0 ${
+                              g.active
+                                ? 'bg-emerald-500/20 text-emerald-300'
+                                : 'bg-slate-500/20 text-slate-400'
+                            }`}
+                          >
+                            {g.active ? 'Active' : 'Paused'}
+                          </button>
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </section>
@@ -2426,6 +2896,78 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         className="mt-1 w-full h-10 px-3 rounded-xl bg-[#191928] border border-white/10 text-sm font-mono-nums text-white focus:outline-none focus:border-[#7c3aed]"
                       />
                     </label>
+                  </div>
+
+                  {/* New User First-Deposit Bonus Controls */}
+                  <div className="pt-3 border-t border-white/[0.08] space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-bold text-white">
+                        New User First-Deposit Bonus
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSettingsDraft((prev) => ({
+                            ...prev,
+                            firstDepositBonusEnabled:
+                              prev.firstDepositBonusEnabled === false ? true : false,
+                          }))
+                        }
+                        className={`btn-press px-3 py-1 rounded-lg text-[11px] font-bold ${
+                          settingsDraft.firstDepositBonusEnabled !== false
+                            ? 'bg-emerald-500/20 text-emerald-300'
+                            : 'bg-rose-500/20 text-rose-300'
+                        }`}
+                      >
+                        {settingsDraft.firstDepositBonusEnabled !== false ? 'Enabled' : 'Disabled'}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="block">
+                        <span className="text-[11px] font-semibold text-slate-400">
+                          Bonus Rate (%)
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={25}
+                          step={1}
+                          value={settingsDraft.firstDepositBonusPct ?? 5}
+                          onChange={(e) =>
+                            setSettingsDraft({
+                              ...settingsDraft,
+                              firstDepositBonusPct: Math.max(
+                                0,
+                                Math.min(25, Number(e.target.value) || 0)
+                              ),
+                            })
+                          }
+                          className="mt-1 w-full h-10 px-3 rounded-xl bg-[#191928] border border-white/10 text-sm font-mono-nums text-white focus:outline-none focus:border-[#7c3aed]"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-[11px] font-semibold text-slate-400">
+                          Max Bonus Cap (₹)
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={500}
+                          step={10}
+                          value={settingsDraft.firstDepositBonusMaxInr ?? 100}
+                          onChange={(e) =>
+                            setSettingsDraft({
+                              ...settingsDraft,
+                              firstDepositBonusMaxInr: Math.max(
+                                0,
+                                Math.min(500, Number(e.target.value) || 0)
+                              ),
+                            })
+                          }
+                          className="mt-1 w-full h-10 px-3 rounded-xl bg-[#191928] border border-white/10 text-sm font-mono-nums text-white focus:outline-none focus:border-[#7c3aed]"
+                        />
+                      </label>
+                    </div>
                   </div>
 
                   <button

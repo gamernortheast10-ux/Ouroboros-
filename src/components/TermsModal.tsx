@@ -15,46 +15,34 @@ const PLATFORM_RULES_SECTIONS: {
   tone?: 'default' | 'emerald' | 'amber' | 'rose';
 }[] = [
   {
-    title: '1. Matched Betting (Opposite Predictions: UP vs DOWN)',
-    badge: 'RULE 1',
+    title: '1. Voluntary Participation & User Discretion',
+    badge: 'VOLUNTARY',
     tone: 'emerald',
-    body: 'A normal Peer-to-Peer (P2P) matched trade activates when User A and User B place opposite predictions (one UP / Long, one DOWN / Short) on the same asset. At timer expiry, live market exit price vs the Match Anchor Price decides the winner: if price moves UP, the UP trader wins; if price moves DOWN, the DOWN trader wins. Winner receives their stake plus matched winnings minus the configured platform commission (withdrawable immediately). Flat tie at exact anchor price refunds both users 100%.',
-    example:
-      'Case 1 Example: User A puts ₹500 UP and User B puts ₹500 DOWN on BTC at ₹87,000. At expiry BTC is ₹87,400 (UP) → User A wins ₹500 + ₹475 (after 5% fee) = ₹975 unlocked; User B loses ₹500.',
+    body: 'Participation on Ouroboros is 100% voluntary ("apni marzi se khele"). Every user decides on their own whether to trade, play instant games, or enter prediction pools, and assumes full responsibility for their stake amounts and outcomes.',
   },
   {
-    title: '2. Same-Side Predictions Rule (Both UP or Both DOWN)',
-    badge: 'RULE 2',
+    title: '2. Matched Betting & Live-Web Prediction Settlement',
+    badge: 'SETTLEMENT',
+    tone: 'default',
+    body: 'P2P UP/DOWN trades settle automatically at timer expiry using live asset pricing (100% refund on unmatched timeout; same-side same-direction refund or opposite-direction forfeiture per market rules). Prediction markets can only be settled by the Platform Owner Desk via verified live web outcomes; winning payouts automatically deduct the configured platform commission.',
+  },
+  {
+    title: '3. Aviator & Instant Game Rules',
+    badge: 'GAMES',
     tone: 'amber',
-    body: 'If two matched users choose the exact same direction on an asset (Both UP or Both DOWN), settlement follows strict price direction: (A) If Both choose UP and price goes DOWN, OR Both choose DOWN and price goes UP → BOTH users lose (payout ₹0) and the entire invested pool is credited to the Platform Owner. (B) If Both choose UP and price goes UP (or Both choose DOWN and price goes DOWN) → the trade is Cancelled & Refunded so both users get 100% of their stake and fee back with zero loss.',
-    example:
-      'Case 3A (Forfeiture): User A & User B both bet ₹500 UP on BTC at ₹87,000, price drops to ₹86,500 → Both lose ₹500 and ₹1,000 pool goes to Platform Owner. Case 3B (Refund): Price rises to ₹87,500 → Trade is Cancelled/Refunded and both receive 100% back.',
+    body: 'In Aviator and all instant games, rounds have a minimum ₹10 stake and dynamic crash/multiplier ceilings. Players must cash out before the plane flies away or a round ends; uncashed stakes forfeit upon crash.',
   },
   {
-    title: '3. No-Match Scenario (Timeout & 100% Refund)',
-    badge: 'RULE 3',
-    tone: 'default',
-    body: 'Every new order starts with status "Pending". If no opposite or same-side peer matches your order before the selected timer expires (or if you close while still Pending), the trade settles as "Cancelled/Refunded" and 100% of your stake plus entry fee is returned to your wallet with ₹0 commission.',
-    example:
-      'Case 2 Example: User A places ₹500 UP on ETH for 1m. Nobody joins before 00:00 → Order closes as Cancelled/Refunded and full debit returns to User A.',
-  },
-  {
-    title: '4. Transparent Trade Statuses & Live Ledger',
-    badge: 'RULE 4',
-    tone: 'default',
-    body: 'Every P2P order displays real-time lifecycle status across the Trading Terminal, Portfolio, and History Ledger: Pending (awaiting peer), Matched (paired with counterparty), Settled (paid to winner or pool settled), and Cancelled/Refunded (100% returned).',
-  },
-  {
-    title: '5. Wallet Deposits, Play-Through & Withdrawals',
+    title: '4. Wallet Deposits, First-Deposit Bonus & Gift Codes',
     badge: 'WALLET',
     tone: 'default',
-    body: 'Deposits (₹100 – ₹1,00,000) require a valid 12-digit UPI UTR verification by the Owner Desk before wallet credit. Deposited capital remains play-locked for active trades and unlocks into Withdrawable Balance upon winning settled trades.',
+    body: 'Deposits (₹100 – ₹1,00,000) require 12-digit UPI UTR verification by the Owner Desk. Eligible new accounts receive a capped first-deposit play bonus upon their initial verified deposit. Gift codes are issued exclusively by the Owner Desk with configurable user limits and progressive payout steps.',
   },
   {
-    title: '6. Financial Risk & Compliance Disclaimer',
+    title: '5. Financial Risk & 18+ Compliance Disclaimer',
     badge: 'RISK',
     tone: 'rose',
-    body: 'Trading short-horizon assets, crypto indices, and P2P prediction pools involves substantial risk of capital loss. Users must be 18+, acknowledge that matched opposite losses and Case 3A same-side forfeitures are final upon live price settlement, and only participate with funds they can afford to risk.',
+    body: 'Trading short-horizon assets, crash games, and prediction markets involves real risk of financial loss. Users must be 18+, play responsibly within personal limits, and accept that settled wins, losses, and commissions are final.',
   },
 ];
 

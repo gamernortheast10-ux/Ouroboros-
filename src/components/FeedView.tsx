@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   MessageSquare,
@@ -17,6 +17,8 @@ import { t } from '../utils/i18n';
 
 interface FeedViewProps {
   state: AppState;
+  hasUnreadCommunity?: boolean;
+  onOpenCommunity?: () => void;
   onBack?: () => void;
   onTradeAsset: (asset: MarketAsset) => void;
   onViewAllBets?: () => void;
@@ -29,6 +31,8 @@ type NewsFilter = 'ALL' | 'STOCKS' | 'BETS' | 'BULLISH';
 
 export const FeedView: React.FC<FeedViewProps> = ({
   state,
+  hasUnreadCommunity = false,
+  onOpenCommunity,
   onBack,
   onTradeAsset,
   onViewAllBets,
@@ -41,12 +45,21 @@ export const FeedView: React.FC<FeedViewProps> = ({
   const [commentText, setCommentText] = useState('');
   const [chatInput, setChatInput] = useState('');
   const [chatError, setChatError] = useState<string | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
 
   const lang = state.profile.language;
   const communityMessages = state.communityMessages ?? [];
   const remainingToday = getCommunityRemainingCount(state.communityChatUsage);
   const myUsername =
     state.profile.name.trim().replace(/\s+/g, '_') || 'Trader';
+
+  useEffect(() => {
+    if (activeTab !== 'community') return;
+    const el = chatScrollRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [activeTab, communityMessages.length]);
 
   const filteredNews = state.news.filter((item) => {
     if (newsFilter === 'ALL') return true;
@@ -121,17 +134,28 @@ export const FeedView: React.FC<FeedViewProps> = ({
           </button>
           <button
             type="button"
+            id="feed-community-tab-btn"
             role="tab"
             aria-selected={activeTab === 'community'}
-            onClick={() => setActiveTab('community')}
-            className={`btn-press min-h-[38px] px-4 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 ${
+            onClick={() => {
+              setActiveTab('community');
+              onOpenCommunity?.();
+            }}
+            className={`btn-press relative min-h-[38px] px-4 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 ${
               activeTab === 'community'
                 ? 'preserve-white bg-[#7c3aed] text-white shadow-sm'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
             <MessagesSquare className="w-3.5 h-3.5" />
-            {t(lang, 'communityTab')}
+            <span>{t(lang, 'communityTab')}</span>
+            {hasUnreadCommunity && activeTab !== 'community' && (
+              <span
+                id="community-tab-red-dot"
+                aria-label="Live community messages"
+                className="w-2 h-2 rounded-full bg-[#ef4444] animate-pulse shrink-0"
+              />
+            )}
           </button>
         </div>
       </div>
@@ -278,9 +302,15 @@ export const FeedView: React.FC<FeedViewProps> = ({
         <section className="rounded-[24px] bg-[#15101f] border border-white/[0.08] p-4 sm:p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-white/[0.06]">
             <div>
-              <h2 className="text-base font-bold text-white">{t(lang, 'communityChat')}</h2>
-              <p className="text-xs text-slate-400">
-                Anonymous chat — only usernames appear, no personal details shown
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-white">{t(lang, 'communityChat')}</h2>
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-300">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  LIVE 24×7
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Active traders — deposits, votes &amp; wins (usernames only)
               </p>
             </div>
             <span
@@ -296,6 +326,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
 
           {/* Messages Stream — Username & Message ONLY */}
           <div
+            ref={chatScrollRef}
             className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1"
             aria-label="Community chat messages"
           >

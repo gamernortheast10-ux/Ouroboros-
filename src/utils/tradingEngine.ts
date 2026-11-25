@@ -3,7 +3,6 @@ import {
   DEFAULT_MERCHANT_UPIS,
   DEFAULT_PLATFORM_SETTINGS,
   DEFAULT_REFERRAL_CONFIG,
-  VALID_GIFT_CODES,
 } from '../data/seedData';
 import {
   ActiveBet,
@@ -942,6 +941,9 @@ export function placePredictionBet(
   if (!market) {
     return { ok: false, error: 'Prediction market not found.' };
   }
+  if (market.resolvedOutcome) {
+    return { ok: false, error: 'This prediction market has already settled.' };
+  }
   if (!Number.isFinite(params.stake) || params.stake < MIN_BET_STAKE_INR) {
     return { ok: false, error: `Minimum prediction bet is ₹${MIN_BET_STAKE_INR}.` };
   }
@@ -1009,6 +1011,23 @@ export function placePredictionBet(
   return { ok: true, nextState, bet };
 }
 
+export function computeGiftCodeClaimAmount(
+  gift: {
+    amount: number;
+    initialAmount?: number;
+    minAmount?: number;
+    stepDecreaseInr?: number;
+    claimsCount?: number;
+  },
+  claimIndex?: number
+): number {
+  const initialAmt = Math.max(1, Number(gift.initialAmount ?? gift.amount) || 1);
+  const stepDec = Math.max(0, Number(gift.stepDecreaseInr ?? 0) || 0);
+  const minAmt = Math.max(1, Math.min(initialAmt, Number(gift.minAmount ?? 1) || 1));
+  const idx = Math.max(0, Math.floor(claimIndex ?? gift.claimsCount ?? 0));
+  return roundMoney(Math.max(minAmt, initialAmt - idx * stepDec));
+}
+
 export function redeemGiftCode(
   state: AppState,
   rawCode: string,
@@ -1018,54 +1037,109 @@ export function redeemGiftCode(
   if (!code) {
     return { ok: false, error: 'Please enter a gift code.' };
   }
-  const customMatch = (state.customGiftCodes ?? []).find(
-    (g) => g.code.trim().toUpperCase() === code && g.active
-  );
-  const reward = customMatch
-    ? { amount: customMatch.amount, label: customMatch.label }
-    : VALID_GIFT_CODES[code];
-  if (!reward) {
+
+  const customList = state.customGiftCodes ?? [];
+  const customMatch = customList.find((g) => g.code.trim().toUpperCase() === code);
+  if (!customMatch) {
     return {
       ok: false,
-      error: 'Invalid gift code. Try OURO500, WELCOME250, or VIP1000.',
+      error: 'No active gift code matches that entry. Gift codes are issued exclusively by Owner Desk.',
     };
   }
-  if (state.redeemedGifts.some((g) => g.code === code)) {
+  if (!customMatch.active) {
+    return {
+      ok: false,
+      error: `Gift code ${code} is currently paused or exhausted.`,
+    };
+  }
+
+  const cleanEmail = state.profile.email.trim().toLowerCase();
+  const claimsCount = Math.max(0, Math.floor(customMatch.claimsCount ?? 0));
+  const maxClaims = Math.max(0, Math.floor(customMatch.maxClaims ?? 0));
+  if (maxClaims > 0 && claimsCount >= maxClaims) {
+    return {
+      ok: false,
+      error: `Gift code ${code} has reached its maximum ${maxClaims}-user claim limit.`,
+    };
+  }
+
+  const alreadyClaimedByEmail =
+    Boolean(cleanEmail) &&
+    (customMatch.claimedByEmails ?? []).some((e) => e.trim().toLowerCase() === cleanEmail);
+  if (alreadyClaimedByEmail || state.redeemedGifts.some((g) => g.code === code)) {
     return { ok: false, error: `Gift code ${code} has already been redeemed.` };
   }
 
+  const claimAmount = computeGiftCodeClaimAmount(customMatch, claimsCount);
+  const nextClaimsCount = claimsCount + 1;
+  const stillAvailable = maxClaims === 0 || nextClaimsCount < maxClaims;
+  const nextPreviewAmount = computeGiftCodeClaimAmount(customMatch, nextClaimsCount);
   const stamp = formatExactDateTime(nowMs);
+
+  const giftTx: WalletTransaction = {
+    id: `tx-${nowMs}`,
+    type: 'gift_redeem',
+    title: `Gift Code ${code}`,
+    amount: claimAmount,
+    timestamp: stamp,
+    status: 'Credited',
+    meta: `${customMatch.label} (${nextClaimsCount}${maxClaims > 0 ? `/${maxClaims}` : ''} claimed)`,
+    createdAtMs: nowMs,
+    userEmail: cleanEmail || undefined,
+    userName: state.profile.name,
+    userUid: state.profile.uid,
+  };
+
+  const nextBalance = roundMoney(state.balance + claimAmount);
+  const nextTodayReceived = roundMoney(state.todayReceived + claimAmount);
+  const nextRedeemedGifts = [
+    {
+      id: `gift-${nowMs}`,
+      code,
+      amount: claimAmount,
+      redeemedAt: stamp,
+      label: customMatch.label,
+    },
+    ...state.redeemedGifts,
+  ];
+  const nextTransactions = [giftTx, ...state.transactions];
+
+  const nextCustomGiftCodes = customList.map((g) => {
+    if (g.code.trim().toUpperCase() !== code) return g;
+    return {
+      ...g,
+      amount: nextPreviewAmount,
+      claimsCount: nextClaimsCount,
+      active: g.active && stillAvailable,
+      claimedByEmails: cleanEmail
+        ? Array.from(new Set([...(g.claimedByEmails ?? []), cleanEmail]))
+        : g.claimedByEmails ?? [],
+    };
+  });
+
+  const nextRegistered = (state.registeredAccounts ?? []).map((acc) => {
+    if (!cleanEmail || acc.email.trim().toLowerCase() !== cleanEmail) return acc;
+    return {
+      ...acc,
+      balance: nextBalance,
+      todayReceived: nextTodayReceived,
+      redeemedGifts: nextRedeemedGifts,
+      transactions: nextTransactions,
+    };
+  });
 
   const nextState: AppState = {
     ...state,
-    balance: Math.round((state.balance + reward.amount) * 100) / 100,
-    todayReceived: Math.round((state.todayReceived + reward.amount) * 100) / 100,
-    redeemedGifts: [
-      {
-        id: `gift-${nowMs}`,
-        code,
-        amount: reward.amount,
-        redeemedAt: stamp,
-        label: reward.label,
-      },
-      ...state.redeemedGifts,
-    ],
-    transactions: [
-      {
-        id: `tx-${nowMs}`,
-        type: 'gift_redeem',
-        title: `Gift Code ${code}`,
-        amount: reward.amount,
-        timestamp: stamp,
-        status: 'Credited',
-        meta: reward.label,
-        createdAtMs: nowMs,
-      },
-      ...state.transactions,
-    ],
+    balance: nextBalance,
+    todayReceived: nextTodayReceived,
+    redeemedGifts: nextRedeemedGifts,
+    customGiftCodes: nextCustomGiftCodes,
+    transactions: nextTransactions,
+    platformTransactions: [giftTx, ...(state.platformTransactions ?? [])].slice(0, 300),
+    registeredAccounts: nextRegistered,
   };
 
-  return { ok: true, nextState, amount: reward.amount, code };
+  return { ok: true, nextState, amount: claimAmount, code };
 }
 
 export function validateUpiId(raw: string): { valid: boolean; cleaned: string; error?: string } {
@@ -1853,6 +1927,7 @@ export function adminVerifyAndCreditDeposit(
       nextState: AppState;
       targetEmail: string;
       creditedAmount: number;
+      firstDepositBonusInr: number;
     }
   | { ok: false; error: string } {
   const pool = [...(state.platformTransactions ?? []), ...state.transactions];
@@ -1871,23 +1946,79 @@ export function adminVerifyAndCreditDeposit(
   const isCurrentSession =
     state.profile.email.trim().toLowerCase() === targetEmail;
   const amount = roundMoney(Math.max(0, tx.amount));
+
+  const targetAcc = (state.registeredAccounts ?? []).find(
+    (a) => a.email.trim().toLowerCase() === targetEmail
+  );
+  const allKnownTxsForUser = [
+    ...(targetAcc?.transactions ?? []),
+    ...(isCurrentSession ? state.transactions : []),
+    ...(state.platformTransactions ?? []),
+  ];
+  const hasPriorVerifiedDeposit =
+    (targetAcc?.totalDepositedInr ?? 0) > 0 ||
+    allKnownTxsForUser.some(
+      (item) =>
+        item.id !== txId &&
+        item.type === 'deposit' &&
+        (item.userEmail ?? state.profile.email).trim().toLowerCase() === targetEmail &&
+        (item.credited === true || item.status === 'Credited' || item.status === 'Completed') &&
+        item.amount > 0
+    );
+
+  const settings = getEffectivePlatformSettings(state);
+  const bonusPct = Math.max(0, Number(settings.firstDepositBonusPct ?? 5) || 0);
+  const bonusMaxInr = Math.max(0, Number(settings.firstDepositBonusMaxInr ?? 100) || 0);
+  const firstDepositBonusInr =
+    !hasPriorVerifiedDeposit &&
+    settings.firstDepositBonusEnabled !== false &&
+    bonusPct > 0 &&
+    amount > 0
+      ? roundMoney(
+          bonusMaxInr > 0
+            ? Math.min(bonusMaxInr, (amount * bonusPct) / 100)
+            : (amount * bonusPct) / 100
+        )
+      : 0;
+  const totalWalletCredit = roundMoney(amount + firstDepositBonusInr);
+
   const updatedMeta = tx.utr
     ? `UTR ${tx.utr} · Verified & Credited`
     : 'Verified & Credited by Owner';
 
-  const patchTx = (list: WalletTransaction[]) =>
-    list.map((item) =>
+  const bonusTx: WalletTransaction | null =
+    firstDepositBonusInr > 0
+      ? {
+          id: `tx-dep-bonus-${txId}-${nowMs}`,
+          type: 'deposit',
+          title: 'New User First-Deposit Bonus',
+          amount: firstDepositBonusInr,
+          timestamp: formatExactDateTime(nowMs),
+          status: 'Credited',
+          meta: `${bonusPct}% Welcome Deposit Bonus · Play-Only`,
+          createdAtMs: nowMs,
+          credited: true,
+          userEmail: targetEmail || undefined,
+          userName: tx.userName ?? targetAcc?.name ?? state.profile.name,
+          userUid: tx.userUid ?? targetAcc?.uid ?? state.profile.uid,
+        }
+      : null;
+
+  const patchTx = (list: WalletTransaction[]) => {
+    const mapped = list.map((item) =>
       item.id === txId
         ? { ...item, status: 'Credited' as const, credited: true, meta: updatedMeta }
         : item
     );
+    return bonusTx ? [bonusTx, ...mapped] : mapped;
+  };
 
   const nextRegistered = (state.registeredAccounts ?? []).map((acc) => {
     if (acc.email.trim().toLowerCase() !== targetEmail) return acc;
     return {
       ...acc,
-      balance: roundMoney((acc.balance ?? 0) + amount),
-      todayReceived: roundMoney((acc.todayReceived ?? 0) + amount),
+      balance: roundMoney((acc.balance ?? 0) + totalWalletCredit),
+      todayReceived: roundMoney((acc.todayReceived ?? 0) + totalWalletCredit),
       totalDepositedInr: roundMoney((acc.totalDepositedInr ?? 0) + amount),
       transactions: patchTx(acc.transactions ?? []),
     };
@@ -1907,9 +2038,11 @@ export function adminVerifyAndCreditDeposit(
 
   const baseState: AppState = {
     ...state,
-    balance: isCurrentSession ? roundMoney(state.balance + amount) : state.balance,
+    balance: isCurrentSession
+      ? roundMoney(state.balance + totalWalletCredit)
+      : state.balance,
     todayReceived: isCurrentSession
-      ? roundMoney(state.todayReceived + amount)
+      ? roundMoney(state.todayReceived + totalWalletCredit)
       : state.todayReceived,
     transactions: patchTx(state.transactions),
     platformTransactions: patchTx(state.platformTransactions ?? []),
@@ -1924,6 +2057,7 @@ export function adminVerifyAndCreditDeposit(
     nextState: baseState,
     targetEmail,
     creditedAmount: amount,
+    firstDepositBonusInr,
   };
 }
 
@@ -2685,6 +2819,303 @@ export function buildTopTradersLeaderboard(
     currentUserEntry,
   };
 }
+
+export interface OwnerPredictionDraft {
+  question: string;
+  category: Exclude<PredictionMarket['category'], never>;
+  subLabel: string;
+  endLabel: string;
+  endsInSeconds: number;
+  resolutionCriteria?: string;
+  yesPoolSeed?: number;
+  noPoolSeed?: number;
+}
+
+export function createOwnerPredictionMarket(
+  state: AppState,
+  ownerEmail: string,
+  draft: OwnerPredictionDraft,
+  nowMs = Date.now()
+): { ok: true; nextState: AppState; market: PredictionMarket } | { ok: false; error: string } {
+  if (!isOwnerAdmin(ownerEmail)) {
+    return {
+      ok: false,
+      error: 'Unauthorized: Only the platform owner can launch new prediction bets.',
+    };
+  }
+  const question = draft.question.trim();
+  if (question.length < 5) {
+    return { ok: false, error: 'Prediction question must be at least 5 characters.' };
+  }
+
+  const market: PredictionMarket = {
+    id: `pred-owner-${nowMs}-${Math.random().toString(36).slice(2, 5)}`,
+    category: draft.category,
+    subLabel: draft.subLabel.trim() || `${draft.category} · Owner Desk`,
+    question,
+    endsInSeconds: Math.max(300, Math.floor(Number(draft.endsInSeconds) || 86400)),
+    endLabel: draft.endLabel.trim() || 'Live Web Settled',
+    yesPool: Math.max(1000, roundMoney(Number(draft.yesPoolSeed) || 5000)),
+    noPool: Math.max(1000, roundMoney(Number(draft.noPoolSeed) || 5000)),
+    yesBettors: 0,
+    noBettors: 0,
+    createdByOwner: true,
+    createdAt: formatExactDateTime(nowMs),
+    resolutionCriteria: draft.resolutionCriteria?.trim() || undefined,
+  };
+
+  return {
+    ok: true,
+    market,
+    nextState: {
+      ...state,
+      predictions: [market, ...state.predictions],
+    },
+  };
+}
+
+export function settlePredictionMarketByOutcome(
+  state: AppState,
+  params: {
+    ownerEmail: string;
+    marketId: string;
+    outcome: 'yes' | 'no';
+    summary: string;
+    sources?: Array<{ title: string; uri: string }>;
+    nowMs?: number;
+  }
+):
+  | {
+      ok: true;
+      nextState: AppState;
+      settledCount: number;
+      winnersCount: number;
+      totalPayoutInr: number;
+      totalCommissionInr: number;
+    }
+  | { ok: false; error: string } {
+  if (!isOwnerAdmin(params.ownerEmail)) {
+    return {
+      ok: false,
+      error: 'Unauthorized: Only the platform owner can settle prediction outcomes.',
+    };
+  }
+
+  const market = state.predictions.find((m) => m.id === params.marketId);
+  if (!market) {
+    return { ok: false, error: 'Prediction market not found.' };
+  }
+  if (market.resolvedOutcome) {
+    return { ok: false, error: 'Prediction market has already been settled.' };
+  }
+
+  const nowMs = params.nowMs ?? Date.now();
+  const stamp = formatExactDateTime(nowMs);
+  const feePct = getEffectiveReferralConfig(state).platformFeePct;
+  const cleanSessionEmail = state.profile.email.trim().toLowerCase();
+  const settledBetIds = new Set<string>();
+  const newLedgerEntries: CommissionLedgerEntry[] = [];
+  const newPlatformTxs: WalletTransaction[] = [];
+
+  let settledCount = 0;
+  let winnersCount = 0;
+  let totalPayoutInr = 0;
+  let totalCommissionInr = 0;
+  let ownerRevenueDelta = 0;
+
+  const computeBetSettlement = (
+    bet: ActiveBet,
+    actorEmail: string,
+    actorName: string,
+    actorUid: string
+  ): {
+    updatedBet: ActiveBet;
+    netPayout: number;
+    pnlDelta: number;
+    profitCredit: number;
+    tx: WalletTransaction;
+  } => {
+    const won = bet.choice === params.outcome;
+    const grossPayout = won ? roundMoney(bet.stake * bet.multiplier) : 0;
+    const grossProfit = won ? roundMoney(Math.max(0, grossPayout - bet.stake)) : 0;
+    const commissionFee = won ? roundMoney((grossProfit * feePct) / 100) : 0;
+    const netPayout = won ? roundMoney(Math.max(0, grossPayout - commissionFee)) : 0;
+    const pnlDelta = roundMoney(netPayout - bet.stake);
+    const profitCredit = won ? roundMoney(Math.max(0, netPayout - bet.stake)) : 0;
+
+    if (!settledBetIds.has(bet.id)) {
+      settledBetIds.add(bet.id);
+      settledCount += 1;
+      if (won) {
+        winnersCount += 1;
+        totalPayoutInr = roundMoney(totalPayoutInr + netPayout);
+        totalCommissionInr = roundMoney(totalCommissionInr + commissionFee);
+        ownerRevenueDelta = roundMoney(ownerRevenueDelta + commissionFee);
+      }
+      newLedgerEntries.push({
+        id: `led-pred-${bet.id}-${nowMs}`,
+        timestamp: stamp,
+        createdAtMs: nowMs,
+        actorEmail,
+        actorName,
+        kind: 'bet',
+        grossAmountInr: won ? grossPayout : bet.stake,
+        platformFeeInr: commissionFee,
+        ownerNetRevenueInr: won ? commissionFee : bet.stake,
+        note: `${won ? 'WIN' : 'LOSS'} (${params.outcome.toUpperCase()}) · ${market.question.slice(0, 48)}`,
+      });
+    }
+
+    const tx: WalletTransaction = {
+      id: `tx-pred-res-${bet.id}-${nowMs}`,
+      type: 'trade_close',
+      title: `Live Web Result (${params.outcome.toUpperCase()}) · ${market.subLabel}`,
+      amount: netPayout,
+      timestamp: stamp,
+      status: 'Settled',
+      meta: won
+        ? `Won ${bet.multiplier.toFixed(2)}x · Net after ${feePct}% fee`
+        : 'Settled via Live Web Result',
+      createdAtMs: nowMs,
+      userEmail: actorEmail || undefined,
+      userName: actorName,
+      userUid: actorUid,
+    };
+
+    return {
+      updatedBet: {
+        ...bet,
+        status: won ? 'won' : 'lost',
+        payout: netPayout,
+        settledAt: stamp,
+        resolutionSummary: params.summary,
+        resolutionSources: params.sources,
+      },
+      netPayout,
+      pnlDelta,
+      profitCredit,
+      tx,
+    };
+  };
+
+  // Settle bets in registered accounts (using active state.bets if acc matches active session)
+  const nextRegistered: RegisteredAccount[] = (state.registeredAccounts ?? []).map((acc) => {
+    const accEmail = acc.email.trim().toLowerCase();
+    const isSession = Boolean(cleanSessionEmail && accEmail === cleanSessionEmail);
+    const sourceBets = isSession ? state.bets : acc.bets ?? [];
+    const matchingOpen = sourceBets.filter(
+      (b) => b.marketId === params.marketId && b.status === 'open'
+    );
+    if (matchingOpen.length === 0) return acc;
+
+    let bal = isSession ? state.balance : acc.balance ?? 0;
+    let wd = isSession ? state.withdrawableBalance : acc.withdrawableBalance ?? 0;
+    let pnl = isSession ? state.realizedPnl : acc.realizedPnl ?? 0;
+    let today = isSession ? state.todayReceived : acc.todayReceived ?? 0;
+    const accTxs = [...(isSession ? state.transactions : acc.transactions ?? [])];
+
+    const updatedBets = sourceBets.map((b) => {
+      if (b.marketId !== params.marketId || b.status !== 'open') return b;
+      const res = computeBetSettlement(b, accEmail, acc.name, acc.uid);
+      bal = roundMoney(bal + res.netPayout);
+      if (res.netPayout > 0) {
+        wd = Math.min(bal, roundMoney(wd + res.netPayout));
+      } else {
+        wd = Math.min(bal, wd);
+      }
+      pnl = roundMoney(pnl + res.pnlDelta);
+      today = roundMoney(today + res.profitCredit);
+      accTxs.unshift(res.tx);
+      newPlatformTxs.push(res.tx);
+      return res.updatedBet;
+    });
+
+    return {
+      ...acc,
+      balance: bal,
+      withdrawableBalance: wd,
+      realizedPnl: pnl,
+      todayReceived: today,
+      bets: updatedBets,
+      transactions: accTxs,
+    };
+  });
+
+  // Also update active session state (including when session account is not in registeredAccounts)
+  let nextSessionBalance = state.balance;
+  let nextSessionWd = state.withdrawableBalance;
+  let nextSessionPnl = state.realizedPnl;
+  let nextSessionToday = state.todayReceived;
+  const sessionTxsToPrepend: WalletTransaction[] = [];
+
+  const nextSessionBets = state.bets.map((b) => {
+    if (b.marketId !== params.marketId || b.status !== 'open') return b;
+    const res = computeBetSettlement(
+      b,
+      cleanSessionEmail || 'session',
+      state.profile.name,
+      state.profile.uid
+    );
+    nextSessionBalance = roundMoney(nextSessionBalance + res.netPayout);
+    if (res.netPayout > 0) {
+      nextSessionWd = Math.min(
+        nextSessionBalance,
+        roundMoney(nextSessionWd + res.netPayout)
+      );
+    } else {
+      nextSessionWd = Math.min(nextSessionBalance, nextSessionWd);
+    }
+    nextSessionPnl = roundMoney(nextSessionPnl + res.pnlDelta);
+    nextSessionToday = roundMoney(nextSessionToday + res.profitCredit);
+    sessionTxsToPrepend.push(res.tx);
+    if (!newPlatformTxs.some((t) => t.id === res.tx.id)) {
+      newPlatformTxs.push(res.tx);
+    }
+    return res.updatedBet;
+  });
+
+  const nextPredictions = state.predictions.map((m) => {
+    if (m.id !== params.marketId) return m;
+    return {
+      ...m,
+      endsInSeconds: 0,
+      endLabel: params.outcome === 'yes' ? 'Settled: YES' : 'Settled: NO',
+      resolvedOutcome: params.outcome,
+      resolvedAt: stamp,
+      resolutionSummary: params.summary,
+      resolutionSources: params.sources,
+    };
+  });
+
+  return {
+    ok: true,
+    settledCount,
+    winnersCount,
+    totalPayoutInr: roundMoney(totalPayoutInr),
+    totalCommissionInr: roundMoney(totalCommissionInr),
+    nextState: {
+      ...state,
+      balance: nextSessionBalance,
+      withdrawableBalance: nextSessionWd,
+      realizedPnl: nextSessionPnl,
+      todayReceived: nextSessionToday,
+      bets: nextSessionBets,
+      predictions: nextPredictions,
+      transactions: [...sessionTxsToPrepend, ...state.transactions],
+      platformTransactions: [...newPlatformTxs, ...(state.platformTransactions ?? [])].slice(
+        0,
+        300
+      ),
+      registeredAccounts: nextRegistered,
+      ownerFeeRevenue: roundMoney((state.ownerFeeRevenue ?? 0) + ownerRevenueDelta),
+      commissionLedger: [...newLedgerEntries, ...(state.commissionLedger ?? [])].slice(
+        0,
+        300
+      ),
+    },
+  };
+}
+
 
 
 

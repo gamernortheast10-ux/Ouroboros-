@@ -21,8 +21,6 @@ interface GiftViewProps {
   onRedeemCode: (code: string) => { ok: boolean; error?: string; amount?: number };
 }
 
-const SAMPLE_CODES = ['OURO500', 'WELCOME250', 'VIP1000'];
-
 export const GiftView: React.FC<GiftViewProps> = ({ state, onRedeemCode }) => {
   const [codeInput, setCodeInput] = useState('');
   const [typingPulse, setTypingPulse] = useState(false);
@@ -85,12 +83,12 @@ export const GiftView: React.FC<GiftViewProps> = ({ state, onRedeemCode }) => {
         return;
       }
     } catch {
-      // Clipboard blocked: fill next unclaimed sample code
+      // Clipboard access unavailable
     }
-    const nextUnclaimed =
-      SAMPLE_CODES.find((c) => !state.redeemedGifts.some((g) => g.code === c)) ?? SAMPLE_CODES[0];
-    setCodeInput(nextUnclaimed);
-    setFeedback(null);
+    setFeedback({
+      type: 'error',
+      text: 'Paste from clipboard is unavailable — enter your Owner-issued gift code manually.',
+    });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -316,31 +314,6 @@ export const GiftView: React.FC<GiftViewProps> = ({ state, onRedeemCode }) => {
               </button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs text-slate-400">
-              <span>Promo drops:</span>
-              {SAMPLE_CODES.map((c) => {
-                const used = state.redeemedGifts.some((g) => g.code === c);
-                return (
-                  <button
-                    key={c}
-                    type="button"
-                    disabled={used}
-                    onClick={() => {
-                      setCodeInput(c);
-                      setFeedback(null);
-                    }}
-                    className={`btn-press px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg font-mono-nums font-bold transition-colors ${
-                      used
-                        ? 'bg-white/[0.03] text-slate-500 line-through cursor-not-allowed'
-                        : 'bg-[#1d1d2e] text-[#a78bfa] hover:bg-[#26263d]'
-                    }`}
-                  >
-                    {c}
-                  </button>
-                );
-              })}
-            </div>
-
             {feedback && (
               <p
                 role="alert"
@@ -400,9 +373,9 @@ export const GiftView: React.FC<GiftViewProps> = ({ state, onRedeemCode }) => {
               <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#7c3aed]/20 text-[#a78bfa] mx-auto flex items-center justify-center">
                 <Gift className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
-              <p className="text-sm font-bold text-white">No redeemed codes yet</p>
+              <p className="text-sm font-bold text-white">No gift codes redeemed yet</p>
               <p className="text-[11px] sm:text-xs text-slate-400">
-                Try code <span className="font-mono-nums font-bold text-[#a78bfa]">OURO500</span> above to claim your launch gift.
+                Gift drops appear here when issued by the Owner Desk.
               </p>
             </div>
           ) : (

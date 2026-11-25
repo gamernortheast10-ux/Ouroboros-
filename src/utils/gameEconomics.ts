@@ -1,4 +1,5 @@
 export type GameId =
+  | 'aviator'
   | 'stairs'
   | 'rps'
   | 'treasure'
@@ -22,6 +23,7 @@ export interface BetValidationResult {
 }
 
 export const GAME_MIN_BETS: Record<GameId, number> = {
+  aviator: 10,
   stairs: 10,
   rps: 10,
   treasure: 10,
@@ -684,6 +686,21 @@ export function simulateGameRtp(
       const delta = rng() < 0.5 ? 1 : -1;
       returned += resolveTradeLivePosition('up', 100, 100 + delta, bet).credit;
     }
+  } else if (gameId === 'aviator') {
+    for (let r = 0; r < rounds; r++) {
+      const stake = r % 3 === 0 ? 250 : 25;
+      wagered += stake;
+      const crash = generateAviatorCrashPoint({
+        hasRealBet: true,
+        totalBetInr: stake,
+        roll: rng(),
+        smallBetRoll: rng(),
+      });
+      const targetCashout = stake <= AVIATOR_SMALL_BET_THRESHOLD ? 1.45 : 1.35;
+      if (crash >= targetCashout) {
+        returned += roundInr(stake * targetCashout);
+      }
+    }
   }
 
   return {
@@ -692,3 +709,54 @@ export function simulateGameRtp(
     rtp: wagered > 0 ? returned / wagered : 0,
   };
 }
+
+// ===== 14. AVIATOR CRASH FLIGHT =====
+export const AVIATOR_SMALL_BET_THRESHOLD = 100;
+export const AVIATOR_SMALL_BET_MAX_MULT = 3.0;
+export const AVIATOR_LARGE_BET_MAX_MULT = 1.85;
+
+export function generateAviatorCrashPoint(params: {
+  hasRealBet: boolean;
+  totalBetInr: number;
+  roll: number;
+  smallBetRoll?: number;
+}): number {
+  const r = Math.min(0.999999, Math.max(0, Number(params.roll) || 0));
+  const sub = Math.min(0.999999, Math.max(0, Number(params.smallBetRoll ?? params.roll) || 0));
+
+  // No real user bet active: plane climbs high & dramatically to build excitement
+  if (!params.hasRealBet || params.totalBetInr <= 0) {
+    const idleMult = 5.5 + Math.pow(r, 1.35) * 36.5;
+    return Math.round(idleMult * 100) / 100;
+  }
+
+  // Small user stake (<= ₹100): modest fun profits frequently without allowing runaway wins
+  if (params.totalBetInr <= AVIATOR_SMALL_BET_THRESHOLD) {
+    if (r < 0.34) {
+      // Early house crash (1.00x - 1.18x)
+      return Math.round((1.0 + sub * 0.18) * 100) / 100;
+    }
+    if (r < 0.88) {
+      // Modest profit zone (1.24x - 2.25x)
+      return Math.round((1.24 + sub * 1.01) * 100) / 100;
+    }
+    // Occasional exciting mid-flight capped at 3.00x
+    return Math.min(
+      AVIATOR_SMALL_BET_MAX_MULT,
+      Math.round((2.25 + sub * 0.7) * 100) / 100
+    );
+  }
+
+  // Larger stake (> ₹100): tight crash ceiling & high early-crash rate protecting house profit
+  if (r < 0.62) {
+    return Math.round((1.0 + sub * 0.24) * 100) / 100;
+  }
+  if (r < 0.95) {
+    return Math.round((1.24 + sub * 0.41) * 100) / 100;
+  }
+  return Math.min(
+    AVIATOR_LARGE_BET_MAX_MULT,
+    Math.round((1.65 + sub * 0.2) * 100) / 100
+  );
+}
+

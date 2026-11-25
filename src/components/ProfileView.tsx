@@ -50,10 +50,15 @@ import {
   convertCurrency,
   formatCurrency,
   getCurrencyMeta,
+  getEffectivePlatformSettings,
   isOwnerAdmin,
 } from '../utils/tradingEngine';
 import { WalletModalMode } from './WalletModal';
 import { UpiAppLogo } from './UpiAppBranding';
+import {
+  LeaderboardPodiumIcon,
+  TopTradersLeaderboard,
+} from './TopTradersLeaderboard';
 
 interface ProfileViewProps {
   state: AppState;
@@ -77,7 +82,7 @@ interface ProfileViewProps {
   onLogout?: () => void;
 }
 
-type ProfileSheet = null | 'transactions' | 'trader_id' | 'tickets' | 'security' | 'settings' | 'get_app';
+type ProfileSheet = null | 'transactions' | 'trader_id' | 'tickets' | 'security' | 'settings' | 'get_app' | 'leaderboard';
 type TxFilter = 'all' | 'deposit' | 'trade' | 'withdraw';
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -117,6 +122,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const lang: LanguageCode = state.profile.language ?? 'en';
   const currency: BaseCurrency = state.profile.baseCurrency ?? 'INR';
   const fxRates = state.fxRates;
+  const platformSettings = getEffectivePlatformSettings(state);
 
   const activeCurrencyMeta = getCurrencyMeta(currency);
   const inrToActiveRate = useMemo(
@@ -1031,6 +1037,31 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               </div>
             </section>
 
+            {/* Top Traders Leaderboard Trigger Button */}
+            {platformSettings.leaderboardEnabled !== false && (
+              <button
+                type="button"
+                id="profile-leaderboard-btn"
+                onClick={() => setActiveSheet('leaderboard')}
+                className={`btn-press w-full min-h-[54px] px-4 rounded-2xl border flex items-center justify-between text-left ${surfaceCard}`}
+              >
+                <span className="flex items-center gap-3">
+                  <span className="w-9 h-9 rounded-xl bg-[#7c3aed]/15 border border-[#8b5cf6]/30 text-[#a78bfa] flex items-center justify-center">
+                    <LeaderboardPodiumIcon className="w-4 h-4" />
+                  </span>
+                  <span>
+                    <span className={`block text-sm font-bold ${headingText}`}>
+                      Top Traders Leaderboard
+                    </span>
+                    <span className={`block text-xs ${mutedText}`}>
+                      View Top 10 traders ranked by Realized PnL
+                    </span>
+                  </span>
+                </span>
+                <ChevronRight className={`w-4 h-4 ${mutedText}`} />
+              </button>
+            )}
+
             {/* Bottom Settings & Password Change + Account Log out */}
             <div className="space-y-2.5">
               <button
@@ -1113,7 +1144,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             if (e.target === e.currentTarget) setActiveSheet(null);
           }}
         >
-          <div className="w-full max-w-md bg-[#12121c] border border-white/10 rounded-t-3xl md:rounded-2xl p-5 pb-7 shadow-2xl max-h-[85vh] overflow-y-auto">
+          <div
+            className={`w-full ${
+              activeSheet === 'leaderboard' ? 'max-w-lg' : 'max-w-md'
+            } bg-[#12121c] border border-white/10 rounded-t-3xl md:rounded-2xl p-5 pb-7 shadow-2xl max-h-[85vh] overflow-y-auto`}
+          >
             <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-4 md:hidden" />
 
             {/* Transactions Sheet */}
@@ -1538,6 +1573,44 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     Update Password
                   </button>
                 </form>
+              </div>
+            )}
+
+            {/* Top Traders Leaderboard Sheet */}
+            {activeSheet === 'leaderboard' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-9 h-9 rounded-xl bg-[#7c3aed]/15 border border-[#8b5cf6]/30 text-[#a78bfa] flex items-center justify-center shrink-0">
+                      <LeaderboardPodiumIcon className="w-4 h-4" />
+                    </span>
+                    <div>
+                      <h3 className="text-lg font-extrabold text-white leading-tight">
+                        Top Traders Leaderboard
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        Top 10 ranked by Realized PnL
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSheet(null)}
+                    aria-label="Close leaderboard dialog"
+                    className="btn-press w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-slate-300"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <TopTradersLeaderboard
+                  state={state}
+                  embeddedInModal
+                  onTradeNow={() => {
+                    setActiveSheet(null);
+                    onBack();
+                  }}
+                />
               </div>
             )}
 

@@ -27,7 +27,62 @@ interface GameBannerImageProps {
 export const GameBannerArt: React.FC<GameBannerImageProps> = ({ game, className = '' }) => {
   const [imgFailed, setImgFailed] = useState(false);
 
-  if (imgFailed) {
+  if (game.id === 'aviator') {
+    return (
+      <div
+        className={`relative w-full h-full overflow-hidden flex items-center justify-center ${className}`}
+        style={{ background: game.fallbackGradient }}
+      >
+        <svg
+          viewBox="0 0 320 180"
+          className="w-full h-full"
+          preserveAspectRatio="xMidYMid slice"
+          aria-hidden="true"
+        >
+          <defs>
+            <linearGradient id="aviatorArea" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#ef4444" stopOpacity="0.45" />
+              <stop offset="100%" stopColor="#ef4444" stopOpacity="0.02" />
+            </linearGradient>
+            <radialGradient id="aviatorGlow" cx="72%" cy="32%" r="55%">
+              <stop offset="0%" stopColor="#f43f5e" stopOpacity="0.55" />
+              <stop offset="100%" stopColor="#0f172a" stopOpacity="0" />
+            </radialGradient>
+          </defs>
+          <rect width="320" height="180" fill="url(#aviatorGlow)" />
+          <g stroke="rgba(255,255,255,0.08)" strokeWidth="1">
+            <line x1="0" y1="45" x2="320" y2="45" />
+            <line x1="0" y1="90" x2="320" y2="90" />
+            <line x1="0" y1="135" x2="320" y2="135" />
+            <line x1="80" y1="0" x2="80" y2="180" />
+            <line x1="160" y1="0" x2="160" y2="180" />
+            <line x1="240" y1="0" x2="240" y2="180" />
+          </g>
+          <path d="M 16 156 Q 130 144 252 46 L 252 156 Z" fill="url(#aviatorArea)" />
+          <path
+            d="M 16 156 Q 130 144 252 46"
+            fill="none"
+            stroke="#fb7185"
+            strokeWidth="4"
+            strokeLinecap="round"
+          />
+          <g transform="translate(248 44) rotate(-26)">
+            <path
+              d="M -22 4 L 18 -2 C 25 -2 28 2 22 6 L -12 10 L -22 4 Z"
+              fill="#f43f5e"
+              stroke="#ffe4e6"
+              strokeWidth="1.5"
+            />
+            <path d="M -2 0 L -12 -14 L -3 -14 L 8 -1 Z" fill="#e11d48" />
+            <path d="M -18 3 L -26 -8 L -19 -8 L -12 3 Z" fill="#fb7185" />
+            <ellipse cx="14" cy="1.5" rx="4" ry="2" fill="#fde68a" />
+          </g>
+        </svg>
+      </div>
+    );
+  }
+
+  if (imgFailed || !game.bannerImage) {
     return (
       <div
         className={`w-full h-full flex items-center justify-center p-3 text-center ${className}`}
@@ -96,7 +151,7 @@ export const GamesView: React.FC<GamesViewProps> = ({
     const resolvedPath = getAssetUrl(activeGame.htmlPath);
     return `${resolvedPath}?bal=${encodeURIComponent(
       String(Math.round(latestBalanceRef.current * 100) / 100)
-    )}&v=3`;
+    )}&v=6`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeGame?.id, reloadNonce]);
 

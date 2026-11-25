@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  AVIATOR_LARGE_BET_MAX_MULT,
+  AVIATOR_SMALL_BET_MAX_MULT,
+  AVIATOR_SMALL_BET_THRESHOLD,
   BALLOON_RTP_FACTOR,
   CHICKEN_ROAD_MULTS,
   CHICKEN_ROAD_RISK,
@@ -35,6 +38,7 @@ import {
   calcTreasureCashout,
   calcTreasureMultiplier,
   canCashOutStairs,
+  generateAviatorCrashPoint,
   getBalloonPumpEv,
   getBalloonPumpPopChance,
   getChickenRoadLaneEv,
@@ -54,9 +58,9 @@ import {
   validateGameBet,
 } from './gameEconomics';
 
-test('minimum bet enforcement rejects < minBet and > balance across all 16 games', () => {
+test('minimum bet enforcement rejects < minBet and > balance across all 17 games', () => {
   const allGames = Object.keys(GAME_MIN_BETS) as GameId[];
-  assert.equal(allGames.length, 16);
+  assert.equal(allGames.length, 17);
 
   for (const id of allGames) {
     const min = GAME_MIN_BETS[id];
@@ -224,6 +228,40 @@ test('10,000-round Monte Carlo simulation confirms house profitability (RTP < 1.
     assert.ok(
       res.rtp >= 0.45 && res.rtp <= 0.985,
       `${id} Monte Carlo 10k RTP=${(res.rtp * 100).toFixed(2)}% expected between 45% and 98.5%`
+    );
+  }
+});
+
+test('Aviator flies high when no real user bets exist and caps payouts under active real stakes', () => {
+  for (let i = 0; i < 10; i += 1) {
+    const r = (i + 0.5) / 10;
+    const noBetCrash = generateAviatorCrashPoint({
+      hasRealBet: false,
+      totalBetInr: 0,
+      roll: r,
+    });
+    assert.ok(noBetCrash >= 5.5 && noBetCrash <= 42.0, `Expected high flight, got ${noBetCrash}`);
+
+    const smallBetCrash = generateAviatorCrashPoint({
+      hasRealBet: true,
+      totalBetInr: AVIATOR_SMALL_BET_THRESHOLD,
+      roll: r,
+      smallBetRoll: r,
+    });
+    assert.ok(
+      smallBetCrash >= 1.0 && smallBetCrash <= AVIATOR_SMALL_BET_MAX_MULT,
+      `Small bet crash ${smallBetCrash} exceeded max ${AVIATOR_SMALL_BET_MAX_MULT}`
+    );
+
+    const largeBetCrash = generateAviatorCrashPoint({
+      hasRealBet: true,
+      totalBetInr: 500,
+      roll: r,
+      smallBetRoll: r,
+    });
+    assert.ok(
+      largeBetCrash >= 1.0 && largeBetCrash <= AVIATOR_LARGE_BET_MAX_MULT,
+      `Large bet crash ${largeBetCrash} exceeded max ${AVIATOR_LARGE_BET_MAX_MULT}`
     );
   }
 });

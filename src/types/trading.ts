@@ -52,6 +52,13 @@ export interface PredictionMarket {
   noPool: number;
   yesBettors: number;
   noBettors: number;
+  createdByOwner?: boolean;
+  createdAt?: string;
+  resolutionCriteria?: string;
+  resolvedOutcome?: 'yes' | 'no';
+  resolvedAt?: string;
+  resolutionSummary?: string;
+  resolutionSources?: Array<{ title: string; uri: string }>;
 }
 
 export interface ActivePosition {
@@ -113,6 +120,9 @@ export interface ActiveBet {
   placedAt: string;
   status: 'open' | 'won' | 'lost';
   payout?: number;
+  settledAt?: string;
+  resolutionSummary?: string;
+  resolutionSources?: Array<{ title: string; uri: string }>;
 }
 
 export interface BankAccount {
@@ -188,6 +198,12 @@ export interface CustomGiftCode {
   amount: number;
   label: string;
   active: boolean;
+  initialAmount?: number;
+  minAmount?: number;
+  stepDecreaseInr?: number;
+  maxClaims?: number;
+  claimsCount?: number;
+  claimedByEmails?: string[];
 }
 
 export interface PlatformFeeConfig {
@@ -337,6 +353,9 @@ export interface PlatformSettings {
   dailyCheckInBaseReward?: number;
   leaderboardEnabled?: boolean;
   guestBrowsingEnabled?: boolean;
+  firstDepositBonusEnabled?: boolean;
+  firstDepositBonusPct?: number;
+  firstDepositBonusMaxInr?: number;
 }
 
 export interface PendingTransferAnimation {

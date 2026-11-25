@@ -34,6 +34,9 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
   dailyCheckInBaseReward: 10,
   leaderboardEnabled: true,
   guestBrowsingEnabled: true,
+  firstDepositBonusEnabled: true,
+  firstDepositBonusPct: 5,
+  firstDepositBonusMaxInr: 100,
 };
 
 export const DEFAULT_REFERRAL_CONFIG: Required<ReferralConfig> = {
@@ -46,12 +49,7 @@ export const DEFAULT_REFERRAL_CONFIG: Required<ReferralConfig> = {
   referralBonusCapInr: 500,
 };
 
-export const VALID_GIFT_CODES: Record<string, { amount: number; label: string }> = {
-  OURO500: { amount: 500, label: 'Ouroboros Launch Bonus' },
-  WELCOME250: { amount: 250, label: 'Welcome Trader Credit' },
-  VIP1000: { amount: 1000, label: 'VIP Liquidity Drop' },
-  TRADE100: { amount: 100, label: 'Daily Check-In Gift' },
-};
+export const VALID_GIFT_CODES: Record<string, { amount: number; label: string }> = {};
 
 export const INITIAL_ASSETS: MarketAsset[] = [
   {

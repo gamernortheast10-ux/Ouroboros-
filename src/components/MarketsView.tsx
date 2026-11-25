@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  FileText,
   Gamepad2,
   Play,
   Plus,
@@ -42,11 +43,11 @@ import { MiniCandleBars } from './SparklineChart';
 import { FlagGlobe, FlagGlobeMarker } from './ui/flag-globe';
 import { WalletModalMode } from './WalletModal';
 import { DailyCheckInCard } from './DailyCheckInCard';
-import { TopTradersLeaderboard } from './TopTradersLeaderboard';
 
 interface MarketsViewProps {
   state: AppState;
   unreadNotifications: number;
+  hasUnreadNews?: boolean;
   onOpenNotifications: () => void;
   onOpenAuth: () => void;
   onClaimDailyCheckIn: () => void;
@@ -59,6 +60,7 @@ interface MarketsViewProps {
   onOpenWalletModal: (mode: WalletModalMode) => void;
   onNavigateNews: () => void;
   onNavigateGift?: () => void;
+  onOpenTerms?: () => void;
 }
 
 const CATEGORIES: MarketCategory[] = [
@@ -160,6 +162,7 @@ function useAnimatedMoney(target: number, durationMs = 620): number {
 export const MarketsView: React.FC<MarketsViewProps> = ({
   state,
   unreadNotifications,
+  hasUnreadNews = true,
   onOpenNotifications,
   onOpenAuth,
   onClaimDailyCheckIn,
@@ -171,6 +174,7 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
   onOpenWalletModal,
   onNavigateNews,
   onNavigateGift,
+  onOpenTerms,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<MarketCategory>('All Markets');
   const [searchQuery, setSearchQuery] = useState('');
@@ -252,8 +256,8 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
     {
       id: 'instant-games',
       tag: 'Arcade & Instant',
-      title: '16 Interactive Games Ready to Play',
-      desc: 'Launch Chicken Road, Mines, Plinko, Color Predict, Crypto Jackpot & more in one tap',
+      title: '17 Interactive Games Incl. Aviator',
+      desc: 'Launch Aviator Crash, Chicken Road, Mines, Plinko, Color Predict & more in one tap',
       ctaLabel: 'View More Games',
       gradient: 'linear-gradient(135deg, #2e1065 0%, #5b21b6 48%, #7c3aed 100%)',
       icon: <BannerFeatureIcon kind="chart" className="w-11 h-11" />,
@@ -293,10 +297,10 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
     },
     {
       id: 'gift-drops',
-      tag: 'Daily Rewards',
-      title: 'Claim Bonus Gift Codes & Pools',
-      desc: 'Use OURO500, WELCOME250 or VIP1000 in Gift Drop & explore Prediction pools',
-      ctaLabel: 'Claim Gift',
+      tag: 'Owner Drops & Pools',
+      title: 'Redeem Owner Gift Drops & Pools',
+      desc: 'Enter Owner-issued gift drop codes or explore live Prediction pools',
+      ctaLabel: 'Open Gift Drop',
       gradient: 'linear-gradient(135deg, #3b0764 0%, #6b21a8 50%, #7c3aed 100%)',
       icon: <BannerFeatureIcon kind="gift" className="w-11 h-11" />,
       action: () => (onNavigateGift ? onNavigateGift() : onNavigateNews()),
@@ -572,14 +576,22 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
 
           <button
             type="button"
+            id="quick-action-news-btn"
             onClick={onNavigateNews}
-            className="btn-press bg-[#15101f] hover:bg-[#1c1529] border border-white/[0.06] rounded-[16px] sm:rounded-[18px] py-3 sm:py-4 px-1 sm:px-2 text-center transition-all"
+            className="btn-press relative bg-[#15101f] hover:bg-[#1c1529] border border-white/[0.06] rounded-[16px] sm:rounded-[18px] py-3 sm:py-4 px-1 sm:px-2 text-center transition-all"
           >
             <div
-              className="preserve-white w-10 h-10 sm:w-[46px] sm:h-[46px] mx-auto mb-1.5 sm:mb-2 rounded-[13px] sm:rounded-[15px] flex items-center justify-center text-white shadow-[0_6px_16px_rgba(124,58,237,0.35)]"
+              className="preserve-white relative w-10 h-10 sm:w-[46px] sm:h-[46px] mx-auto mb-1.5 sm:mb-2 rounded-[13px] sm:rounded-[15px] flex items-center justify-center text-white shadow-[0_6px_16px_rgba(124,58,237,0.35)]"
               style={{ background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)' }}
             >
               <QuickNewsIcon className="w-[19px] h-[19px] sm:w-[21px] sm:h-[21px]" />
+              {hasUnreadNews && (
+                <span
+                  id="quick-news-red-dot"
+                  aria-label="Unread community messages"
+                  className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-[#ef4444] ring-2 ring-[#15101f] animate-pulse"
+                />
+              )}
             </div>
             <p className="text-[10.5px] sm:text-xs font-semibold text-[#f1f5f9] whitespace-nowrap truncate">
               {t(lang, 'newsShort')}
@@ -942,18 +954,13 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
           </section>
         </div>
 
-        {/* Right 5 Cols: Daily Check-In + Top Traders Leaderboard + Prediction Bets + Supported By Logos */}
+        {/* Right 5 Cols: Daily Check-In + Prediction Bets + Supported By Logos */}
         <div className="lg:col-span-5 space-y-5">
           <DailyCheckInCard
             state={state}
             onClaimDailyCheckIn={onClaimDailyCheckIn}
             onDepositNow={() => onOpenWalletModal('topup')}
             onSignInPrompt={onOpenAuth}
-          />
-
-          <TopTradersLeaderboard
-            state={state}
-            onTradeNow={() => onOpenTradeTerminal()}
           />
 
           <section id="prediction-bets-section" className="space-y-3.5 scroll-mt-16">
@@ -1022,24 +1029,42 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2.5 mt-4">
-                        <button
-                          type="button"
-                          onClick={() => onOpenPrediction(market, 'yes')}
-                          className="preserve-white min-h-[44px] rounded-[14px] font-bold text-sm text-white shadow-[0_4px_14px_rgba(16,185,129,0.3)] transition-transform active:scale-95"
-                          style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}
-                        >
-                          {t(lang, 'betYes')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onOpenPrediction(market, 'no')}
-                          className="preserve-white min-h-[44px] rounded-[14px] font-bold text-sm text-white shadow-[0_4px_14px_rgba(239,68,68,0.3)] transition-transform active:scale-95"
-                          style={{ background: 'linear-gradient(135deg, #dc2626, #ef4444)' }}
-                        >
-                          {t(lang, 'betNo')}
-                        </button>
-                      </div>
+                      {market.resolvedOutcome ? (
+                        <div className="space-y-2 mt-4">
+                          <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs font-bold text-emerald-300">
+                            <span>Settled via Live Web: {market.resolvedOutcome.toUpperCase()}</span>
+                            {market.resolvedAt && (
+                              <span className="text-[10px] font-mono-nums text-emerald-200/80">
+                                {market.resolvedAt}
+                              </span>
+                            )}
+                          </div>
+                          {market.resolutionSummary && (
+                            <p className="text-[11px] text-[#cbd5e1] leading-relaxed">
+                              {market.resolutionSummary}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-2.5 mt-4">
+                          <button
+                            type="button"
+                            onClick={() => onOpenPrediction(market, 'yes')}
+                            className="preserve-white min-h-[44px] rounded-[14px] font-bold text-sm text-white shadow-[0_4px_14px_rgba(16,185,129,0.3)] transition-transform active:scale-95"
+                            style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}
+                          >
+                            {t(lang, 'betYes')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onOpenPrediction(market, 'no')}
+                            className="preserve-white min-h-[44px] rounded-[14px] font-bold text-sm text-white shadow-[0_4px_14px_rgba(239,68,68,0.3)] transition-transform active:scale-95"
+                            style={{ background: 'linear-gradient(135deg, #dc2626, #ef4444)' }}
+                          >
+                            {t(lang, 'betNo')}
+                          </button>
+                        </div>
+                      )}
                     </article>
                   );
                 })}
@@ -1163,6 +1188,31 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Bottom Terms & Conditions Reader */}
+      <section className="rounded-[20px] bg-[#15101f] border border-white/[0.08] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-start sm:items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-[#7c3aed]/20 border border-[#7c3aed]/35 flex items-center justify-center text-[#c4b5fd] shrink-0">
+            <FileText className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-bold text-white">
+              Terms &amp; Conditions · Voluntary Play Policy
+            </div>
+            <p className="text-[11px] text-[#94a3b8] leading-snug mt-0.5">
+              Play &amp; trade voluntarily at your own discretion. Read full prediction, Aviator &amp; wallet rules anytime.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onOpenTerms?.()}
+          data-testid="footer-terms-btn"
+          className="btn-press min-h-[38px] px-4 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-xs font-bold text-[#c4b5fd] whitespace-nowrap shrink-0"
+        >
+          Read Terms &amp; Conditions
+        </button>
       </section>
     </div>
   );

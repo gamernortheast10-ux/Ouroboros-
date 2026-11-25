@@ -38,6 +38,16 @@ export const GAME_CATEGORIES: GameCategory[] = [
 
 export const GAMES_CATALOG: GameCatalogItem[] = [
   {
+    id: 'aviator',
+    title: 'Aviator',
+    tag: 'Crash Flight',
+    category: 'Crash & Risk',
+    htmlPath: '/assets/aistudio/aviator_ouroboros.html',
+    bannerImage: '',
+    fallbackGradient: 'linear-gradient(135deg, #450a0a 0%, #991b1b 48%, #dc2626 100%)',
+    featured: true,
+  },
+  {
     id: 'color-predict',
     title: 'Color Predict',
     tag: '24×7 Live Rounds',

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { INITIAL_APP_STATE } from '../data/seedData';
+import { ADMIN_OWNER_EMAIL, INITIAL_APP_STATE } from '../data/seedData';
 import {
   DEFAULT_FX_RATES,
   PLAYER_LEVELS,
@@ -23,8 +23,10 @@ import {
   closeTradePosition,
   computeAdminPlatformSummary,
   computeDailyCheckInRewardInr,
+  computeGiftCodeClaimAmount,
   consumePendingTransferForUser,
   convertCurrency,
+  createOwnerPredictionMarket,
   executeTradeOrder,
   formatCurrency,
   generateReferralCode,
@@ -39,6 +41,7 @@ import {
   redeemGiftCode,
   sellUsdtToInr,
   settleExpiredPositions,
+  settlePredictionMarketByOutcome,
   tickFxRates,
   validateAndResolveReferralCode,
   validateTradeStake,
@@ -58,6 +61,10 @@ import {
   formatRelativeTime,
   getUnreadCount,
 } from './notifications';
+import {
+  generateLiveCommunityMessage,
+  generateUniqueCommunityHandle,
+} from './chartPatterns';
 import { LANGUAGES, t } from './i18n';
 import {
   DAILY_COMMUNITY_CHAT_LIMIT,
@@ -202,18 +209,83 @@ test('placePredictionBet updates pools and percentages', () => {
   }
 });
 
-test('redeemGiftCode credits valid code once and blocks duplicates', () => {
-  const first = redeemGiftCode(TEST_FUNDED_STATE, 'ouro500');
-  assert.equal(first.ok, true);
-  if (first.ok) {
-    assert.equal(first.nextState.balance, 4785);
-    assert.equal(first.nextState.redeemedGifts.length, 1);
-    const second = redeemGiftCode(first.nextState, 'OURO500');
-    assert.equal(second.ok, false);
-  }
+test('redeemGiftCode rejects built-in defaults and applies progressive Owner gift drops with max user cap', () => {
+  // No built-in gift codes exist by default
+  const defaultAttempt = redeemGiftCode(TEST_FUNDED_STATE, 'OURO500');
+  assert.equal(defaultAttempt.ok, false);
+
+  const ownerGiftState: AppState = {
+    ...TEST_FUNDED_STATE,
+    profile: { ...TEST_FUNDED_STATE.profile, email: 'u1@test.in' },
+    customGiftCodes: [
+      {
+        code: 'DROP100',
+        amount: 100,
+        initialAmount: 100,
+        stepDecreaseInr: 25,
+        minAmount: 50,
+        maxClaims: 3,
+        claimsCount: 0,
+        claimedByEmails: [],
+        label: 'Owner Launch Drop',
+        active: true,
+      },
+    ],
+  };
+
+  assert.equal(computeGiftCodeClaimAmount(ownerGiftState.customGiftCodes![0], 0), 100);
+  assert.equal(computeGiftCodeClaimAmount(ownerGiftState.customGiftCodes![0], 1), 75);
+  assert.equal(computeGiftCodeClaimAmount(ownerGiftState.customGiftCodes![0], 2), 50);
+  assert.equal(computeGiftCodeClaimAmount(ownerGiftState.customGiftCodes![0], 3), 50);
+
+  // User 1 gets ₹100; duplicate blocked
+  const u1 = redeemGiftCode(ownerGiftState, 'drop100');
+  assert.equal(u1.ok, true);
+  if (!u1.ok) return;
+  assert.equal(u1.amount, 100);
+  assert.equal(u1.nextState.balance, 4385);
+  assert.equal(redeemGiftCode(u1.nextState, 'DROP100').ok, false);
+
+  // User 2 gets ₹75
+  const u2 = redeemGiftCode(
+    {
+      ...u1.nextState,
+      redeemedGifts: [],
+      profile: { ...u1.nextState.profile, email: 'u2@test.in' },
+    },
+    'DROP100'
+  );
+  assert.equal(u2.ok, true);
+  if (!u2.ok) return;
+  assert.equal(u2.amount, 75);
+
+  // User 3 gets ₹50 (floor & 3rd/final claim)
+  const u3 = redeemGiftCode(
+    {
+      ...u2.nextState,
+      redeemedGifts: [],
+      profile: { ...u2.nextState.profile, email: 'u3@test.in' },
+    },
+    'DROP100'
+  );
+  assert.equal(u3.ok, true);
+  if (!u3.ok) return;
+  assert.equal(u3.amount, 50);
+  assert.equal(u3.nextState.customGiftCodes?.[0]?.active, false);
+
+  // User 4 blocked after maxClaims=3
+  const u4 = redeemGiftCode(
+    {
+      ...u3.nextState,
+      redeemedGifts: [],
+      profile: { ...u3.nextState.profile, email: 'u4@test.in' },
+    },
+    'DROP100'
+  );
+  assert.equal(u4.ok, false);
 });
 
-test('wallet pending deposit + owner credit, withdraw, and USDT sell update balances accurately', () => {
+test('wallet pending deposit + owner credit (with 5% first-deposit bonus), withdraw, and USDT sell update balances accurately', () => {
   const pendingDep = applyTopUp(TEST_FUNDED_STATE, 1000, 'UPI', '412345678901', 1000);
   assert.equal(pendingDep.ok, true);
   if (!pendingDep.ok) return;
@@ -224,20 +296,21 @@ test('wallet pending deposit + owner credit, withdraw, and USDT sell update bala
   const verified = adminVerifyAndCreditDeposit(pendingDep.nextState, pendingDep.transaction.id, 2000);
   assert.equal(verified.ok, true);
   if (!verified.ok) return;
-  assert.equal(verified.nextState.balance, 5285);
-  assert.equal(verified.nextState.transactions[0].status, 'Credited');
+  assert.equal(verified.firstDepositBonusInr, 50);
+  assert.equal(verified.nextState.balance, 5335);
+  assert.equal(verified.nextState.transactions.some((t) => t.status === 'Credited'), true);
 
   const withdrawn = applyWithdraw(verified.nextState, 500, 'bank-1');
   assert.equal(withdrawn.ok, true);
   if (!withdrawn.ok) return;
-  assert.equal(withdrawn.nextState.balance, 4785);
+  assert.equal(withdrawn.nextState.balance, 4835);
   assert.equal(withdrawn.transaction.destinationCopyValue?.includes('501002344821'), true);
 
   const sold = sellUsdtToInr({ ...withdrawn.nextState, usdtHoldings: 24.5 }, 10);
   assert.equal(sold.ok, true);
   if (sold.ok) {
     assert.equal(sold.inrCredited, 1120);
-    assert.equal(sold.nextState.balance, 5905);
+    assert.equal(sold.nextState.balance, 5955);
   }
 });
 
@@ -445,11 +518,25 @@ test('applyTopUp validates ₹100-₹1,00,000 range, records UTR Under Review, a
     const credited = adminVerifyAndCreditDeposit(res.nextState, res.transaction.id, 2000);
     assert.equal(credited.ok, true);
     if (credited.ok) {
-      assert.equal(credited.nextState.balance, 4285 + 1500);
-      // Deposited ₹1,500 stays play-locked and does not raise withdrawableBalance directly
+      // First verified deposit receives 5% welcome bonus (₹75, capped at ₹100)
+      assert.equal(credited.firstDepositBonusInr, 75);
+      assert.equal(credited.nextState.balance, 4285 + 1500 + 75);
+      // Deposited ₹1,500 + bonus stays play-locked and does not raise withdrawableBalance directly
       assert.equal(credited.nextState.withdrawableBalance, TEST_FUNDED_STATE.withdrawableBalance);
       const blockedWithdraw = applyWithdraw(credited.nextState, 2000, 'bank-1');
       assert.equal(blockedWithdraw.ok, false);
+
+      // Second verified deposit does NOT receive a duplicate first-deposit bonus
+      const secondDep = applyTopUp(credited.nextState, 1000, 'PhonePe', '412345678902', 3000);
+      assert.equal(secondDep.ok, true);
+      if (secondDep.ok) {
+        const secondVerified = adminVerifyAndCreditDeposit(secondDep.nextState, secondDep.transaction.id, 4000);
+        assert.equal(secondVerified.ok, true);
+        if (secondVerified.ok) {
+          assert.equal(secondVerified.firstDepositBonusInr, 0);
+          assert.equal(secondVerified.nextState.balance, credited.nextState.balance + 1000);
+        }
+      }
     }
   }
 });
@@ -1360,6 +1447,111 @@ test('buildTopTradersLeaderboard returns top 10 sorted descending by realizedPnl
   for (let i = 1; i < board.entries.length; i += 1) {
     assert.ok(board.entries[i - 1].realizedPnl >= board.entries[i].realizedPnl);
   }
+});
+
+test('generateUniqueCommunityHandle and generateLiveCommunityMessage produce unique randomized handles and valid messages', () => {
+  const handles = new Set<string>();
+  const messages = [];
+  for (let i = 0; i < 20; i += 1) {
+    const h = generateUniqueCommunityHandle(handles, 1700000000000 + i * 6500);
+    assert.equal(handles.has(h), false);
+    assert.ok(h.length >= 5);
+    handles.add(h);
+
+    const msg = generateLiveCommunityMessage(
+      INITIAL_APP_STATE.assets,
+      INITIAL_APP_STATE.predictions,
+      messages,
+      1700000000000 + i * 6500
+    );
+    assert.ok(msg.username.length >= 5);
+    assert.ok(msg.text.length > 5);
+    messages.push(msg);
+  }
+  const uniqueUsernames = new Set(messages.map((m) => m.username));
+  assert.equal(uniqueUsernames.size, 20);
+});
+
+test('Owner-only prediction creation and live-web outcome settlement credit net winnings minus commission', () => {
+  // Non-owner cannot create or settle prediction markets
+  const blockedCreate = createOwnerPredictionMarket(TEST_FUNDED_STATE, 'user@test.in', {
+    question: 'Will team X win tonight?',
+    category: 'Sports',
+    subLabel: 'Cricket',
+    endLabel: 'Tonight',
+    endsInSeconds: 3600,
+  });
+  assert.equal(blockedCreate.ok, false);
+
+  const created = createOwnerPredictionMarket(TEST_FUNDED_STATE, ADMIN_OWNER_EMAIL, {
+    question: 'Will Amit Shah be the next Prime Minister of India?',
+    category: 'Political',
+    subLabel: 'India Elections',
+    endLabel: 'Live Web Settled',
+    endsInSeconds: 86400,
+    yesPoolSeed: 5000,
+    noPoolSeed: 5000,
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+
+  // User places ₹500 YES bet
+  const withBet = placePredictionBet(created.nextState, {
+    marketId: created.market.id,
+    choice: 'yes',
+    stake: 500,
+  });
+  assert.equal(withBet.ok, true);
+  if (!withBet.ok) return;
+  const placedBet = withBet.bet;
+
+  // Non-owner blocked from settling
+  const blockedSettle = settlePredictionMarketByOutcome(withBet.nextState, {
+    ownerEmail: 'user@test.in',
+    marketId: created.market.id,
+    outcome: 'yes',
+    summary: 'Unauthorized attempt',
+  });
+  assert.equal(blockedSettle.ok, false);
+
+  // Owner settles outcome 'yes' via live web
+  const settled = settlePredictionMarketByOutcome(withBet.nextState, {
+    ownerEmail: ADMIN_OWNER_EMAIL,
+    marketId: created.market.id,
+    outcome: 'yes',
+    summary: 'Verified live web news confirmed YES outcome.',
+    sources: [{ title: 'Official News Source', uri: 'https://example.com/news' }],
+  });
+  assert.equal(settled.ok, true);
+  if (!settled.ok) return;
+
+  assert.equal(settled.settledCount, 1);
+  assert.equal(settled.winnersCount, 1);
+  const grossPayout = Math.round(placedBet.stake * placedBet.multiplier * 100) / 100;
+  const grossProfit = Math.round((grossPayout - placedBet.stake) * 100) / 100;
+  const expectedFee = Math.round(grossProfit * 0.05 * 100) / 100;
+  const expectedNet = Math.round((grossPayout - expectedFee) * 100) / 100;
+  assert.equal(settled.totalCommissionInr, expectedFee);
+  assert.equal(settled.totalPayoutInr, expectedNet);
+  assert.equal(settled.nextState.ownerFeeRevenue, (withBet.nextState.ownerFeeRevenue ?? 0) + expectedFee);
+  assert.equal(settled.nextState.bets[0].status, 'won');
+  assert.equal(settled.nextState.bets[0].payout, expectedNet);
+
+  // Subsequent bets & repeat settlement are blocked once resolved
+  const postSettleBet = placePredictionBet(settled.nextState, {
+    marketId: created.market.id,
+    choice: 'no',
+    stake: 100,
+  });
+  assert.equal(postSettleBet.ok, false);
+
+  const repeatSettle = settlePredictionMarketByOutcome(settled.nextState, {
+    ownerEmail: ADMIN_OWNER_EMAIL,
+    marketId: created.market.id,
+    outcome: 'no',
+    summary: 'Duplicate',
+  });
+  assert.equal(repeatSettle.ok, false);
 });
 
 

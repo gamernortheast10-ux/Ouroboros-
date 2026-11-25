@@ -1,0 +1,1633 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Aviator · Ouroboros</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="./ouro-wallet-bridge.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-base: #0e0f14;
+      --bg-surface: #181a20;
+      --bg-elevated: #22252e;
+      --aviator-red: #e50914;
+      --aviator-green: #28a745;
+      --aviator-amber: #d97706;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg-base);
+      color: #f1f5f9;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      overscroll-behavior-y: contain;
+      touch-action: manipulation;
+    }
+
+    .font-mono-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    @keyframes pop-in {
+      0% { transform: scale(0.92); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .animate-pop {
+      animation: pop-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .pb-safe {
+      padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+    }
+
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type="number"] {
+      -moz-appearance: textfield;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col bg-[#0e0f14] text-zinc-100 select-none" data-phase="WAITING">
+
+  <!-- TOP HEADER -->
+  <header class="sticky top-0 z-30 bg-[#14151b]/95 backdrop-blur-md border-b border-zinc-800/80 px-3 py-2 sm:px-5">
+    <div class="max-w-7xl mx-auto flex items-center justify-between gap-2">
+      <!-- Authentic Aviator Wordmark -->
+      <div class="flex items-center gap-2.5">
+        <span class="font-black italic tracking-tight text-xl sm:text-2xl text-[#e50914] leading-none">Aviator</span>
+        <span class="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-zinc-400 font-medium pl-2 border-l border-zinc-800">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+          <span id="online-count">1,428</span> online
+        </span>
+      </div>
+
+      <!-- Right Controls: Live Ouroboros Wallet Balance, Music, SFX, Provably Fair -->
+      <div class="flex items-center gap-1.5 sm:gap-2">
+        <button id="balance-btn" type="button" title="Top up Ouroboros wallet" class="flex items-center gap-2 bg-[#1c1e26] hover:bg-[#252833] active:scale-95 transition border border-zinc-700/70 rounded-full pl-3 pr-1.5 py-1">
+          <span class="font-mono-num font-bold text-sm sm:text-base text-emerald-400" id="balance-display">₹0.00</span>
+          <span class="w-6 h-6 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </span>
+        </button>
+
+        <!-- Music Toggle -->
+        <button id="music-btn" type="button" aria-label="Toggle Background Music" title="Music" class="h-8 px-2.5 rounded-full bg-[#1c1e26] hover:bg-[#252833] active:scale-95 transition border border-zinc-700/70 flex items-center gap-1.5 text-xs font-semibold text-zinc-200">
+          <svg id="music-icon-on" class="w-3.5 h-3.5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l12-2v13"></path>
+            <circle cx="6" cy="18" r="3"></circle>
+            <circle cx="18" cy="16" r="3"></circle>
+          </svg>
+          <svg id="music-icon-off" class="w-3.5 h-3.5 hidden text-zinc-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l12-2v13"></path>
+            <circle cx="6" cy="18" r="3"></circle>
+            <circle cx="18" cy="16" r="3"></circle>
+            <line x1="2" y1="2" x2="22" y2="22"></line>
+          </svg>
+          <span class="hidden sm:inline">Music</span>
+        </button>
+
+        <!-- SFX Toggle -->
+        <button id="sound-btn" type="button" aria-label="Toggle Sound Effects" title="Sound Effects" class="w-8 h-8 rounded-full bg-[#1c1e26] hover:bg-[#252833] active:scale-95 transition border border-zinc-700/70 flex items-center justify-center text-zinc-200">
+          <svg id="sound-icon-on" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+          </svg>
+          <svg id="sound-icon-off" class="w-4 h-4 hidden text-zinc-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <line x1="23" y1="9" x2="17" y2="15"></line>
+            <line x1="17" y1="9" x2="23" y2="15"></line>
+          </svg>
+        </button>
+
+        <!-- Provably Fair -->
+        <button id="fair-btn" type="button" aria-label="Flight Rules & Fairness" title="Rules & Fairness" class="w-8 h-8 rounded-full bg-[#1c1e26] hover:bg-[#252833] active:scale-95 transition border border-zinc-700/70 flex items-center justify-center text-emerald-400">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            <path d="m9 12 2 2 4-4"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN WORKSPACE -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-2 sm:px-4 py-2 flex flex-col lg:grid lg:grid-cols-12 gap-2.5 pb-safe">
+
+    <!-- LEFT / TOP GAME COLUMN -->
+    <div class="lg:col-span-8 flex flex-col gap-2">
+
+      <!-- MULTIPLIER HISTORY BAR -->
+      <div class="relative bg-[#181a20] border border-zinc-800/80 rounded-xl px-2 py-1.5 flex items-center gap-1.5">
+        <div id="history-strip" class="flex-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar pr-1"></div>
+        <button id="history-expand-btn" type="button" aria-label="Expand History" class="shrink-0 w-7 h-7 rounded-lg bg-[#22252e] hover:bg-zinc-700/70 flex items-center justify-center text-zinc-400 transition">
+          <svg id="history-chevron" class="w-4 h-4 transition-transform duration-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+
+        <!-- Expanded History Dropdown -->
+        <div id="history-dropdown" class="hidden absolute left-0 right-0 top-full mt-1.5 z-20 bg-[#181a20] border border-zinc-700/90 rounded-xl p-3 shadow-2xl animate-pop">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Round History</span>
+            <span class="text-[11px] text-zinc-500">Tap any round to verify</span>
+          </div>
+          <div id="history-grid" class="grid grid-cols-5 sm:grid-cols-8 gap-1.5"></div>
+        </div>
+      </div>
+
+      <!-- FLIGHT CANVAS STAGE -->
+      <div id="stage-container" class="relative w-full h-[240px] sm:h-[330px] lg:h-[380px] rounded-2xl overflow-hidden bg-[#0c0d12] border border-zinc-800/90 shadow-xl">
+        <canvas id="game-canvas" class="block w-full h-full"></canvas>
+
+        <!-- Top-left Round Badge -->
+        <div class="absolute top-2.5 left-2.5 z-10 pointer-events-none flex items-center gap-2">
+          <span class="px-2 py-0.5 rounded bg-black/50 backdrop-blur-sm border border-white/10 text-[11px] font-mono-num text-zinc-400">
+            #<span id="round-id-display">1042</span>
+          </span>
+          <span class="px-2 py-0.5 rounded bg-black/50 backdrop-blur-sm border border-white/10 text-[10px] font-semibold text-zinc-400">
+            Min Bet ₹10
+          </span>
+        </div>
+
+        <!-- Center Multiplier / Status Overlay -->
+        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4 text-center">
+          <div id="overlay-waiting" class="flex flex-col items-center">
+            <div class="text-xs sm:text-sm font-bold uppercase tracking-[0.18em] text-zinc-300 mb-2">Waiting for next round</div>
+            <div class="w-44 sm:w-60 h-1.5 bg-zinc-800 rounded-full overflow-hidden border border-zinc-700/60">
+              <div id="waiting-progress" class="h-full bg-[#e50914] rounded-full transition-all duration-75" style="width: 100%;"></div>
+            </div>
+            <div class="mt-2 font-mono-num text-xs text-zinc-400"><span id="waiting-seconds" class="text-zinc-200 font-bold">4.8s</span></div>
+          </div>
+
+          <div id="overlay-flying" class="hidden flex-col items-center">
+            <div id="multiplier-text" class="font-mono-num font-black text-5xl sm:text-7xl tracking-tight text-white drop-shadow-[0_4px_20px_rgba(0,0,0,0.85)]">
+              1.00x
+            </div>
+          </div>
+
+          <div id="overlay-crashed" class="hidden flex-col items-center animate-pop">
+            <div class="text-sm sm:text-base font-bold uppercase tracking-[0.2em] text-zinc-200 mb-1">Flew Away</div>
+            <div id="crashed-multiplier" class="font-mono-num font-black text-5xl sm:text-7xl tracking-tight text-[#e50914] drop-shadow-[0_4px_20px_rgba(229,9,20,0.45)]">
+              2.45x
+            </div>
+          </div>
+        </div>
+
+        <!-- Floating Cashout Toasts Container -->
+        <div id="toast-container" class="absolute top-2.5 right-2.5 z-20 flex flex-col gap-1.5 items-end pointer-events-none"></div>
+      </div>
+
+      <!-- DUAL BETTING PANELS -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2" id="bet-panels-container"></div>
+    </div>
+
+    <!-- RIGHT / BOTTOM LIVE FEED & STATS COLUMN -->
+    <div class="lg:col-span-4 flex flex-col bg-[#181a20] border border-zinc-800/80 rounded-2xl overflow-hidden min-h-[320px] lg:h-[calc(100vh-5rem)] lg:sticky lg:top-[3.75rem]">
+      <div class="p-1.5 bg-[#121318] border-b border-zinc-800/80 grid grid-cols-3 gap-1">
+        <button type="button" data-tab="all" class="feed-tab py-2 rounded-lg text-xs font-bold transition bg-[#242731] text-white">All Bets</button>
+        <button type="button" data-tab="my" class="feed-tab py-2 rounded-lg text-xs font-bold transition text-zinc-400 hover:text-zinc-200">My Bets</button>
+        <button type="button" data-tab="top" class="feed-tab py-2 rounded-lg text-xs font-bold transition text-zinc-400 hover:text-zinc-200">Top</button>
+      </div>
+
+      <div class="px-3 py-2 border-b border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-400 bg-[#181a20]">
+        <span id="feed-summary-left">All Bets: <strong class="text-zinc-200">0</strong></span>
+        <span id="feed-summary-right">Total: <strong class="text-emerald-400 font-mono-num">₹0.00</strong></span>
+      </div>
+
+      <div class="grid grid-cols-12 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 border-b border-zinc-800/50">
+        <div class="col-span-5">User</div>
+        <div class="col-span-3 text-right">Bet</div>
+        <div class="col-span-2 text-center">Mult</div>
+        <div class="col-span-2 text-right">Cash out</div>
+      </div>
+
+      <div id="feed-list" class="flex-1 overflow-y-auto divide-y divide-zinc-800/40 px-2 py-1 space-y-0.5 max-h-[320px] lg:max-h-none"></div>
+    </div>
+  </main>
+
+  <!-- PROVABLY FAIR & HOUSE RULES MODAL -->
+  <div id="fair-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-[#181a20] border border-zinc-700/80 rounded-2xl max-w-md w-full p-5 shadow-2xl animate-pop">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <svg class="w-5 h-5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            <path d="m9 12 2 2 4-4"></path>
+          </svg>
+          <h2 class="text-base font-bold text-white">Flight Rules &amp; Round Audit</h2>
+        </div>
+        <button type="button" data-close-modal="fair-modal" aria-label="Close" class="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <p class="text-xs text-zinc-300 leading-relaxed mb-3">
+        Minimum stake is ₹10 per flight panel. Place one or two bets before takeoff and cash out manually or with Auto Cash Out before the plane flies away.
+      </p>
+      <div class="space-y-2.5 bg-[#101217] border border-zinc-800 rounded-xl p-3 text-xs">
+        <div>
+          <div class="text-zinc-500 font-semibold mb-0.5">Round Result</div>
+          <div class="flex items-center justify-between">
+            <span class="font-mono-num text-zinc-200" id="fair-round-label">Round #1041</span>
+            <span class="font-mono-num font-bold text-[#e50914]" id="fair-mult-label">1.42x</span>
+          </div>
+        </div>
+        <div>
+          <div class="text-zinc-500 font-semibold mb-0.5">Round Seed (Hex)</div>
+          <div class="font-mono-num text-[11px] text-emerald-400 break-all bg-black/40 p-2 rounded-lg border border-zinc-800/80" id="fair-seed-label">-</div>
+        </div>
+      </div>
+      <div class="mt-4 flex justify-end">
+        <button type="button" data-close-modal="fair-modal" class="px-4 py-2 rounded-xl bg-[#e50914] hover:bg-red-600 text-xs font-bold text-white transition">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // ==========================================
+      // 1. AUDIO SYSTEM
+      // ==========================================
+      const AudioSystem = {
+        ctx: null,
+        sfxMuted: false,
+        musicMuted: false,
+        unlocked: false,
+        musicTimer: null,
+        stepIndex: 0,
+        masterMusicGain: null,
+        engineOsc: null,
+        engineGain: null,
+        chords: [
+          [220.00, 261.63, 329.63, 392.00, 493.88],
+          [174.61, 220.00, 261.63, 329.63, 392.00],
+          [146.83, 220.00, 261.63, 329.63, 440.00],
+          [164.81, 220.00, 246.94, 329.63, 392.00]
+        ],
+        bassNotes: [110.00, 87.31, 73.42, 82.41],
+        unlock() {
+          if (!this.ctx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return;
+            this.ctx = new AudioCtx();
+          }
+          if (this.ctx.state === 'suspended') {
+            this.ctx.resume().catch(() => {});
+          }
+          if (!this.unlocked) {
+            this.unlocked = true;
+            if (!this.musicMuted) this.startMusic();
+          }
+        },
+        toggleSfx() {
+          this.unlock();
+          this.sfxMuted = !this.sfxMuted;
+          if (this.sfxMuted) this.stopEngine();
+          return this.sfxMuted;
+        },
+        toggleMusic() {
+          this.unlock();
+          this.musicMuted = !this.musicMuted;
+          if (this.musicMuted) this.stopMusic();
+          else this.startMusic();
+          return this.musicMuted;
+        },
+        startMusic() {
+          if (this.musicMuted || !this.ctx || this.musicTimer) return;
+          if (!this.masterMusicGain) {
+            this.masterMusicGain = this.ctx.createGain();
+            this.masterMusicGain.gain.setValueAtTime(0.24, this.ctx.currentTime);
+            this.masterMusicGain.connect(this.ctx.destination);
+          }
+          const stepMs = 285;
+          const playStep = () => {
+            if (this.musicMuted || !this.ctx) return;
+            const now = this.ctx.currentTime;
+            const bar = Math.floor(this.stepIndex / 8) % this.chords.length;
+            const beatInBar = this.stepIndex % 8;
+            if (beatInBar === 0) {
+              this.chords[bar].forEach((freq, i) => {
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                const filter = this.ctx.createBiquadFilter();
+                osc.type = i % 2 === 0 ? 'triangle' : 'sine';
+                osc.frequency.setValueAtTime(freq, now);
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(950, now);
+                gain.gain.setValueAtTime(0.001, now);
+                gain.gain.linearRampToValueAtTime(0.04, now + 0.18);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 2.15);
+                osc.connect(filter);
+                filter.connect(gain);
+                gain.connect(this.masterMusicGain);
+                osc.start(now);
+                osc.stop(now + 2.2);
+              });
+            }
+            if (beatInBar === 0 || beatInBar === 3 || beatInBar === 6) {
+              const bassOsc = this.ctx.createOscillator();
+              const bassGain = this.ctx.createGain();
+              bassOsc.type = 'sine';
+              bassOsc.frequency.setValueAtTime(this.bassNotes[bar], now);
+              bassGain.gain.setValueAtTime(0.001, now);
+              bassGain.gain.linearRampToValueAtTime(0.09, now + 0.04);
+              bassGain.gain.exponentialRampToValueAtTime(0.001, now + 0.52);
+              bassOsc.connect(bassGain);
+              bassGain.connect(this.masterMusicGain);
+              bassOsc.start(now);
+              bassOsc.stop(now + 0.55);
+            }
+            this.stepIndex++;
+          };
+          playStep();
+          this.musicTimer = setInterval(playStep, stepMs);
+        },
+        stopMusic() {
+          if (this.musicTimer) {
+            clearInterval(this.musicTimer);
+            this.musicTimer = null;
+          }
+        },
+        playClick() {
+          this.unlock();
+          if (this.sfxMuted || !this.ctx) return;
+          const now = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(540, now);
+          osc.frequency.exponentialRampToValueAtTime(300, now + 0.04);
+          gain.gain.setValueAtTime(0.07, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.05);
+        },
+        playTakeoff() {
+          if (this.sfxMuted || !this.ctx) return;
+          const now = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(150, now);
+          osc.frequency.exponentialRampToValueAtTime(380, now + 0.35);
+          gain.gain.setValueAtTime(0.09, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.4);
+          this.startEngine();
+        },
+        startEngine() {
+          if (this.sfxMuted || !this.ctx || this.engineOsc) return;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(64, this.ctx.currentTime);
+          filter.type = 'lowpass';
+          filter.frequency.setValueAtTime(210, this.ctx.currentTime);
+          gain.gain.setValueAtTime(0.014, this.ctx.currentTime);
+          osc.connect(filter);
+          filter.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          this.engineOsc = osc;
+          this.engineGain = gain;
+        },
+        updateEngine(mult) {
+          if (this.sfxMuted || !this.ctx || !this.engineOsc) return;
+          const freq = Math.min(165, 64 + (mult - 1) * 9);
+          this.engineOsc.frequency.setTargetAtTime(freq, this.ctx.currentTime, 0.1);
+        },
+        stopEngine() {
+          if (this.engineOsc) {
+            try {
+              this.engineOsc.stop();
+              this.engineOsc.disconnect();
+            } catch (e) {}
+            this.engineOsc = null;
+            this.engineGain = null;
+          }
+        },
+        playCashout() {
+          this.unlock();
+          if (this.sfxMuted || !this.ctx) return;
+          const notes = [523.25, 659.25, 783.99, 1046.5];
+          const now = this.ctx.currentTime;
+          notes.forEach((freq, idx) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.05);
+            gain.gain.setValueAtTime(0.11, now + idx * 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.05 + 0.22);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(now + idx * 0.05);
+            osc.stop(now + idx * 0.05 + 0.24);
+          });
+        },
+        playCrash() {
+          this.stopEngine();
+          if (this.sfxMuted || !this.ctx) return;
+          const now = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(210, now);
+          osc.frequency.exponentialRampToValueAtTime(45, now + 0.42);
+          gain.gain.setValueAtTime(0.12, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.48);
+        }
+      };
+
+      // ==========================================
+      // 2. GAME STATE & OUROBOROS WALLET BRIDGE
+      // ==========================================
+      const STORAGE_KEY = 'aviator_ouro_history_v1';
+      const MIN_BET_INR = 10;
+      const WAITING_DURATION_MS = 4500;
+      const CRASH_PAUSE_MS = 2400;
+
+      const state = {
+        balance: 0,
+        roundId: 1042,
+        phase: 'WAITING',
+        phaseStartTime: performance.now(),
+        multiplier: 1.00,
+        crashPoint: 8.50,
+        currentSeed: '',
+        history: [],
+        myBets: [],
+        topWins: [],
+        livePlayers: [],
+        activeTab: 'all',
+        panels: [
+          createPanelState(1, 10),
+          createPanelState(2, 50)
+        ]
+      };
+
+      function createPanelState(id, defaultStake) {
+        return {
+          id,
+          mode: 'bet',
+          stake: defaultStake,
+          autoBet: false,
+          autoCashoutEnabled: false,
+          autoCashoutTarget: 1.50,
+          status: 'IDLE',
+          activeStake: 0,
+          cashedOutMult: 0,
+          payout: 0
+        };
+      }
+
+      function loadSavedHistory() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed.history) && parsed.history.length > 0) {
+              state.history = parsed.history.slice(0, 30);
+            }
+            if (Array.isArray(parsed.myBets)) {
+              state.myBets = parsed.myBets.slice(0, 40);
+            }
+            if (typeof parsed.roundId === 'number') {
+              state.roundId = parsed.roundId;
+            }
+          }
+        } catch (e) {}
+
+        if (state.history.length === 0) {
+          const seeds = [7.42, 1.38, 14.20, 1.84, 9.65, 1.15, 22.40, 1.62, 6.18, 1.95, 11.30, 1.44];
+          state.history = seeds.map((m, idx) => ({
+            roundId: state.roundId - 1 - idx,
+            mult: m,
+            seed: generateHexSeed(16)
+          }));
+        }
+
+        if (state.topWins.length === 0) {
+          state.topWins = [
+            { player: 'Vikram_FX', stake: 100, mult: 2.15, win: 215.00 },
+            { player: 'Riya_Trades', stake: 50, mult: 1.95, win: 97.50 },
+            { player: 'Arjun99', stake: 80, mult: 1.75, win: 140.00 },
+            { player: 'Kabir_Alpha', stake: 25, mult: 2.40, win: 60.00 },
+            { player: 'Neha_Desk', stake: 40, mult: 1.60, win: 64.00 }
+          ];
+        }
+      }
+
+      function saveHistory() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            roundId: state.roundId,
+            history: state.history.slice(0, 30),
+            myBets: state.myBets.slice(0, 40)
+          }));
+        } catch (e) {}
+      }
+
+      function generateHexSeed(bytes = 16) {
+        const arr = new Uint8Array(bytes);
+        if (window.crypto && window.crypto.getRandomValues) {
+          window.crypto.getRandomValues(arr);
+        } else {
+          for (let i = 0; i < bytes; i++) arr[i] = Math.floor(Math.random() * 256);
+        }
+        return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+      }
+
+      function cryptoUnitRandom() {
+        if (window.crypto && window.crypto.getRandomValues) {
+          const arr = new Uint32Array(1);
+          window.crypto.getRandomValues(arr);
+          return arr[0] / (0xFFFFFFFF + 1);
+        }
+        return Math.random();
+      }
+
+      // Mirror of generateAviatorCrashPoint in src/utils/gameEconomics.ts
+      function computeRoundCrashPoint(hasRealBet, totalBetInr) {
+        const r = cryptoUnitRandom();
+        const sub = cryptoUnitRandom();
+
+        // When no real user bet is placed: plane keeps soaring to high multipliers
+        if (!hasRealBet || totalBetInr <= 0) {
+          const idleMult = 5.5 + Math.pow(r, 1.35) * 36.5;
+          return Math.round(idleMult * 100) / 100;
+        }
+
+        // Small user stake (<= ₹100): modest fun wins often, strictly capped <= 3.00x
+        if (totalBetInr <= 100) {
+          if (r < 0.34) {
+            return Math.round((1.0 + sub * 0.18) * 100) / 100;
+          }
+          if (r < 0.88) {
+            return Math.round((1.24 + sub * 1.01) * 100) / 100;
+          }
+          return Math.min(3.0, Math.round((2.25 + sub * 0.70) * 100) / 100);
+        }
+
+        // Larger stake (> ₹100): tighter crash cap <= 1.85x with higher early-crash frequency
+        if (r < 0.62) {
+          return Math.round((1.0 + sub * 0.24) * 100) / 100;
+        }
+        if (r < 0.95) {
+          return Math.round((1.24 + sub * 0.41) * 100) / 100;
+        }
+        return Math.min(1.85, Math.round((1.65 + sub * 0.20) * 100) / 100);
+      }
+
+      // ==========================================
+      // 3. SIMULATED LIVE PLAYERS
+      // ==========================================
+      const BOT_NAMES = [
+        'Aarav_81', 'KaranX', 'Dev_Pro', 'Meera9', 'Siddharth_IN', 'RohanV',
+        'Ananya77', 'Vikram_FX', 'NehaDesk', 'Kabir_11', 'IshaTrades', 'Arjun_07'
+      ];
+
+      function generateLivePlayers() {
+        const count = 12 + Math.floor(Math.random() * 8);
+        const players = [];
+        const used = new Set();
+        for (let i = 0; i < count; i++) {
+          let name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
+          if (used.has(name)) name += '_' + Math.floor(10 + Math.random() * 89);
+          used.add(name);
+          const stakeOptions = [10, 20, 25, 50, 100, 150, 200, 500];
+          const stake = stakeOptions[Math.floor(Math.random() * stakeOptions.length)];
+          const target = Math.max(1.15, Math.round((1.12 + Math.pow(Math.random(), 2.2) * 8) * 100) / 100);
+          players.push({ id: 'bot_' + i, name, stake, target, cashedOut: false, win: 0 });
+        }
+        state.livePlayers = players.sort((a, b) => b.stake - a.stake);
+      }
+
+      // ==========================================
+      // 4. DOM REFERENCES & RENDERING
+      // ==========================================
+      const dom = {
+        balanceDisplay: document.getElementById('balance-display'),
+        roundIdDisplay: document.getElementById('round-id-display'),
+        historyStrip: document.getElementById('history-strip'),
+        historyGrid: document.getElementById('history-grid'),
+        historyDropdown: document.getElementById('history-dropdown'),
+        historyChevron: document.getElementById('history-chevron'),
+        overlayWaiting: document.getElementById('overlay-waiting'),
+        overlayFlying: document.getElementById('overlay-flying'),
+        overlayCrashed: document.getElementById('overlay-crashed'),
+        waitingProgress: document.getElementById('waiting-progress'),
+        waitingSeconds: document.getElementById('waiting-seconds'),
+        multiplierText: document.getElementById('multiplier-text'),
+        crashedMultiplier: document.getElementById('crashed-multiplier'),
+        toastContainer: document.getElementById('toast-container'),
+        betPanelsContainer: document.getElementById('bet-panels-container'),
+        feedList: document.getElementById('feed-list'),
+        feedSummaryLeft: document.getElementById('feed-summary-left'),
+        feedSummaryRight: document.getElementById('feed-summary-right'),
+        fairRoundLabel: document.getElementById('fair-round-label'),
+        fairMultLabel: document.getElementById('fair-mult-label'),
+        fairSeedLabel: document.getElementById('fair-seed-label'),
+        onlineCount: document.getElementById('online-count')
+      };
+
+      function formatMoney(val) {
+        return '₹' + Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+
+      function getMultPillClass(mult) {
+        if (mult >= 10) return 'bg-pink-500/20 text-pink-400 border-pink-500/35';
+        if (mult >= 2) return 'bg-purple-500/20 text-purple-300 border-purple-500/35';
+        return 'bg-sky-500/15 text-sky-300 border-sky-500/30';
+      }
+
+      function renderBalance() {
+        dom.balanceDisplay.textContent = formatMoney(state.balance);
+      }
+
+      function renderHistory() {
+        dom.historyStrip.innerHTML = state.history.slice(0, 18).map(item => `
+          <button type="button" data-round-seed="${item.seed}" data-round-id="${item.roundId}" data-round-mult="${item.mult.toFixed(2)}"
+            class="history-pill shrink-0 px-2.5 py-0.5 rounded-full text-[11px] font-mono-num font-bold border transition active:scale-95 ${getMultPillClass(item.mult)}">
+            ${item.mult.toFixed(2)}x
+          </button>
+        `).join('');
+
+        dom.historyGrid.innerHTML = state.history.slice(0, 24).map(item => `
+          <button type="button" data-round-seed="${item.seed}" data-round-id="${item.roundId}" data-round-mult="${item.mult.toFixed(2)}"
+            class="history-pill px-2 py-1.5 rounded-lg text-xs font-mono-num font-bold border text-center transition active:scale-95 ${getMultPillClass(item.mult)}">
+            ${item.mult.toFixed(2)}x
+          </button>
+        `).join('');
+
+        if (state.history[0]) {
+          dom.fairRoundLabel.textContent = `Round #${state.history[0].roundId}`;
+          dom.fairMultLabel.textContent = `${state.history[0].mult.toFixed(2)}x`;
+          dom.fairSeedLabel.textContent = state.history[0].seed;
+        }
+      }
+
+      function renderBetPanels() {
+        dom.betPanelsContainer.innerHTML = state.panels.map(p => {
+          const isAuto = p.mode === 'auto';
+          const locked = p.status !== 'IDLE';
+          return `
+            <div class="bg-[#181a20] border border-zinc-800/90 rounded-2xl p-2.5 sm:p-3 flex flex-col gap-2" data-panel="${p.id}">
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex bg-[#0e0f14] p-0.5 rounded-full border border-zinc-800">
+                  <button type="button" data-action="mode" data-panel="${p.id}" data-mode="bet"
+                    class="px-4 py-1 rounded-full text-xs font-bold transition ${!isAuto ? 'bg-[#262933] text-white' : 'text-zinc-400 hover:text-zinc-200'}">Bet</button>
+                  <button type="button" data-action="mode" data-panel="${p.id}" data-mode="auto"
+                    class="px-4 py-1 rounded-full text-xs font-bold transition ${isAuto ? 'bg-[#262933] text-white' : 'text-zinc-400 hover:text-zinc-200'}">Auto</button>
+                </div>
+                <span class="text-[11px] font-medium text-zinc-500">Flight Bet ${p.id}</span>
+              </div>
+
+              <div class="grid grid-cols-12 gap-2 items-stretch">
+                <div class="col-span-6 flex flex-col gap-1.5">
+                  <div class="flex items-center bg-[#0e0f14] border border-zinc-700/70 rounded-xl px-1.5 py-1 ${locked ? 'opacity-60' : ''}">
+                    <button type="button" data-action="stake-step" data-panel="${p.id}" data-delta="-10" ${locked ? 'disabled' : ''}
+                      class="w-7 h-7 rounded-lg bg-[#22252e] hover:bg-zinc-700 active:scale-90 text-zinc-200 flex items-center justify-center transition">
+                      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </button>
+                    <input type="number" min="10" max="50000" step="5" value="${p.stake}" data-action="stake-input" data-panel="${p.id}" ${locked ? 'disabled' : ''}
+                      class="w-full bg-transparent text-center font-mono-num font-bold text-sm text-white focus:outline-none" />
+                    <button type="button" data-action="stake-step" data-panel="${p.id}" data-delta="10" ${locked ? 'disabled' : ''}
+                      class="w-7 h-7 rounded-lg bg-[#22252e] hover:bg-zinc-700 active:scale-90 text-zinc-200 flex items-center justify-center transition">
+                      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </button>
+                  </div>
+                  <div class="grid grid-cols-4 gap-1">
+                    ${[10, 25, 50, 100].map(amt => `
+                      <button type="button" data-action="stake-preset" data-panel="${p.id}" data-amount="${amt}" ${locked ? 'disabled' : ''}
+                        class="py-1 rounded-lg bg-[#22252e] hover:bg-[#2c303c] active:scale-95 border border-zinc-700/50 text-[11px] font-mono-num font-semibold text-zinc-300 transition ${locked ? 'opacity-60' : ''}">
+                        ₹${amt}
+                      </button>
+                    `).join('')}
+                  </div>
+                </div>
+
+              <div class="col-span-6 flex">
+                  <button type="button" id="action-btn-${p.id}" data-action="main" data-panel="${p.id}"
+                    class="w-full min-h-[64px] rounded-xl font-bold text-sm sm:text-base tracking-wide flex flex-col items-center justify-center transition active:scale-[0.97] shadow-md bg-[#28a745] text-white">
+                    <span id="action-title-${p.id}" class="uppercase text-sm font-extrabold pointer-events-none">Bet</span>
+                    <span id="action-sub-${p.id}" class="font-mono-num text-xs font-semibold opacity-95 pointer-events-none">${formatMoney(p.stake)}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="${isAuto ? 'flex' : 'hidden'} items-center justify-between gap-2 pt-2 border-t border-zinc-800/80">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" data-action="toggle-autobet" data-panel="${p.id}" ${p.autoBet ? 'checked' : ''}
+                    class="w-4 h-4 rounded accent-[#28a745] cursor-pointer" />
+                  <span class="text-xs font-semibold text-zinc-300">Auto Bet</span>
+                </label>
+
+                <div class="flex items-center gap-2">
+                  <label class="flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" data-action="toggle-autocash" data-panel="${p.id}" ${p.autoCashoutEnabled ? 'checked' : ''}
+                      class="w-4 h-4 rounded accent-amber-500 cursor-pointer" />
+                    <span class="text-xs font-semibold text-zinc-300">Auto Cash</span>
+                  </label>
+                  <div class="flex items-center bg-[#0e0f14] border border-zinc-700/80 rounded-lg px-2 py-1 w-20">
+                    <input type="number" min="1.05" max="20" step="0.05" value="${p.autoCashoutTarget.toFixed(2)}" data-action="autocash-input" data-panel="${p.id}"
+                      class="w-full bg-transparent text-right font-mono-num font-bold text-xs text-amber-400 focus:outline-none" />
+                    <span class="text-xs font-bold text-zinc-500 ml-0.5">x</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        updatePanelButtons();
+      }
+
+      function updatePanelButtons() {
+        state.panels.forEach(p => {
+          const btn = document.getElementById(`action-btn-${p.id}`);
+          const titleEl = document.getElementById(`action-title-${p.id}`);
+          const subEl = document.getElementById(`action-sub-${p.id}`);
+          if (!btn || !titleEl || !subEl) return;
+
+          const effectiveStatus = (p.status === 'ACTIVE' && state.phase !== 'FLYING') ? 'IDLE' : p.status;
+          const styleKey = effectiveStatus;
+
+          if (btn.dataset.styleKey !== styleKey) {
+            btn.dataset.styleKey = styleKey;
+            btn.className = 'w-full min-h-[64px] rounded-xl font-bold text-sm sm:text-base tracking-wide flex flex-col items-center justify-center transition active:scale-[0.97] shadow-md';
+            if (effectiveStatus === 'IDLE') {
+              btn.classList.add('bg-[#28a745]', 'hover:bg-[#22963d]', 'text-white');
+            } else if (effectiveStatus === 'QUEUED') {
+              btn.classList.add('bg-[#d92638]', 'hover:bg-[#c01f2f]', 'text-white');
+            } else if (effectiveStatus === 'ACTIVE') {
+              btn.classList.add('bg-[#d97706]', 'hover:bg-[#b45309]', 'text-white');
+            } else if (effectiveStatus === 'CASHED_OUT') {
+              btn.classList.add('bg-emerald-950/70', 'border', 'border-emerald-500/40', 'text-emerald-300');
+            }
+          }
+
+          let nextTitle = '';
+          let nextTitleClass = '';
+          let nextSub = '';
+          let nextSubClass = '';
+
+          if (effectiveStatus === 'IDLE') {
+            nextTitle = 'Bet';
+            nextTitleClass = 'uppercase text-sm font-extrabold pointer-events-none';
+            nextSub = state.phase === 'FLYING' ? 'Next round' : formatMoney(p.stake);
+            nextSubClass = 'font-mono-num text-xs font-semibold opacity-95 pointer-events-none';
+          } else if (effectiveStatus === 'QUEUED') {
+            nextTitle = 'Cancel';
+            nextTitleClass = 'uppercase text-sm font-extrabold pointer-events-none';
+            nextSub = state.phase === 'WAITING' ? 'Taking off...' : 'Next round';
+            nextSubClass = 'text-[11px] font-medium opacity-90 pointer-events-none';
+          } else if (effectiveStatus === 'ACTIVE') {
+            const liveWin = p.activeStake * state.multiplier;
+            nextTitle = 'Cash Out';
+            nextTitleClass = 'text-xs font-extrabold uppercase tracking-wider pointer-events-none';
+            nextSub = formatMoney(liveWin);
+            nextSubClass = 'font-mono-num text-base font-black pointer-events-none';
+          } else if (effectiveStatus === 'CASHED_OUT') {
+            nextTitle = `Cashed @ ${p.cashedOutMult.toFixed(2)}x`;
+            nextTitleClass = 'text-xs font-bold pointer-events-none';
+            nextSub = `+${formatMoney(p.payout)}`;
+            nextSubClass = 'font-mono-num text-sm font-extrabold pointer-events-none';
+          }
+
+          if (titleEl.textContent !== nextTitle) titleEl.textContent = nextTitle;
+          if (titleEl.className !== nextTitleClass) titleEl.className = nextTitleClass;
+          if (subEl.textContent !== nextSub) subEl.textContent = nextSub;
+          if (subEl.className !== nextSubClass) subEl.className = nextSubClass;
+        });
+      }
+
+      function renderFeed() {
+        if (state.activeTab === 'all') {
+          const userRows = state.panels
+            .filter(p => p.status === 'ACTIVE' || p.status === 'CASHED_OUT' || p.status === 'QUEUED')
+            .map(p => ({
+              name: `You (Bet ${p.id})`,
+              isMe: true,
+              stake: p.status === 'ACTIVE' || p.status === 'CASHED_OUT' ? p.activeStake : p.stake,
+              cashedOut: p.status === 'CASHED_OUT',
+              mult: p.cashedOutMult,
+              win: p.payout
+            }));
+
+          const combined = [...userRows, ...state.livePlayers];
+          const totalPool = combined.reduce((acc, row) => acc + row.stake, 0);
+          dom.feedSummaryLeft.innerHTML = `All Bets: <strong class="text-zinc-200">${combined.length}</strong>`;
+          dom.feedSummaryRight.innerHTML = `Total: <strong class="text-emerald-400 font-mono-num">${formatMoney(totalPool)}</strong>`;
+
+          dom.feedList.innerHTML = combined.map(row => `
+            <div class="grid grid-cols-12 items-center px-2 py-1.5 rounded-lg text-xs ${row.cashedOut ? 'bg-emerald-500/10 border border-emerald-500/20' : ''} ${row.isMe ? 'ring-1 ring-amber-500/40' : ''}">
+              <div class="col-span-5 flex items-center gap-2 truncate">
+                <span class="w-5 h-5 rounded-full ${row.isMe ? 'bg-amber-500 text-zinc-950' : 'bg-zinc-700 text-zinc-300'} text-[10px] font-bold flex items-center justify-center shrink-0">${row.name.charAt(0)}</span>
+                <span class="truncate font-medium ${row.isMe ? 'text-amber-300 font-bold' : 'text-zinc-300'}">${row.name}</span>
+              </div>
+              <div class="col-span-3 text-right font-mono-num text-zinc-300">${formatMoney(row.stake)}</div>
+              <div class="col-span-2 text-center">${row.cashedOut ? `<span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono-num font-bold text-[10px]">${Number(row.mult || row.target || 1).toFixed(2)}x</span>` : '<span class="text-zinc-600">-</span>'}</div>
+              <div class="col-span-2 text-right font-mono-num font-bold ${row.cashedOut ? 'text-emerald-400' : 'text-zinc-600'}">${row.cashedOut ? formatMoney(row.win) : '-'}</div>
+            </div>
+          `).join('');
+        } else if (state.activeTab === 'my') {
+          dom.feedSummaryLeft.innerHTML = `My Bets: <strong class="text-zinc-200">${state.myBets.length}</strong>`;
+          const net = state.myBets.reduce((acc, b) => acc + (b.win - b.stake), 0);
+          dom.feedSummaryRight.innerHTML = `Net: <strong class="font-mono-num ${net >= 0 ? 'text-emerald-400' : 'text-red-400'}">${net >= 0 ? '+' : ''}${formatMoney(net)}</strong>`;
+
+          if (state.myBets.length === 0) {
+            dom.feedList.innerHTML = `<div class="py-10 text-center text-xs text-zinc-500">No bets placed yet.</div>`;
+            return;
+          }
+
+          dom.feedList.innerHTML = state.myBets.map(b => {
+            const won = b.win > 0;
+            return `
+              <div class="grid grid-cols-12 items-center px-2 py-2 rounded-lg text-xs ${won ? 'bg-emerald-500/10' : ''}">
+                <div class="col-span-5 text-zinc-300 font-mono-num">#${b.roundId}</div>
+                <div class="col-span-3 text-right font-mono-num text-zinc-300">${formatMoney(b.stake)}</div>
+                <div class="col-span-2 text-center">${won ? `<span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono-num font-bold text-[10px]">${b.cashoutMult.toFixed(2)}x</span>` : `<span class="text-red-400 font-mono-num text-[10px]">Lost</span>`}</div>
+                <div class="col-span-2 text-right font-mono-num font-bold ${won ? 'text-emerald-400' : 'text-zinc-500'}">${won ? formatMoney(b.win) : '₹0.00'}</div>
+              </div>
+            `;
+          }).join('');
+        } else {
+          dom.feedSummaryLeft.innerHTML = `Top Wins`;
+          dom.feedSummaryRight.innerHTML = `Leaderboard`;
+          dom.feedList.innerHTML = state.topWins.map((w, idx) => `
+            <div class="grid grid-cols-12 items-center px-2 py-2 rounded-lg text-xs">
+              <div class="col-span-5 flex items-center gap-2 truncate">
+                <span class="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold flex items-center justify-center shrink-0">${idx + 1}</span>
+                <span class="truncate font-semibold text-zinc-200">${w.player}</span>
+              </div>
+              <div class="col-span-3 text-right font-mono-num text-zinc-300">${formatMoney(w.stake)}</div>
+              <div class="col-span-2 text-center"><span class="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono-num font-bold text-[10px]">${w.mult.toFixed(2)}x</span></div>
+              <div class="col-span-2 text-right font-mono-num font-bold text-emerald-400">${formatMoney(w.win)}</div>
+            </div>
+          `).join('');
+        }
+      }
+
+      function showToast(title, subtitle, color = 'emerald') {
+        const el = document.createElement('div');
+        const colors = color === 'emerald'
+          ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-200'
+          : 'bg-red-950/90 border-red-500/50 text-red-200';
+        el.className = `px-3 py-1.5 rounded-xl border backdrop-blur-md shadow-lg text-right animate-pop ${colors}`;
+        el.innerHTML = `<div class="text-xs font-bold">${title}</div><div class="text-[11px] font-mono-num opacity-90">${subtitle}</div>`;
+        dom.toastContainer.appendChild(el);
+        setTimeout(() => {
+          el.style.opacity = '0';
+          el.style.transition = 'opacity 0.25s ease';
+          setTimeout(() => el.remove(), 250);
+        }, 2300);
+      }
+
+      // ==========================================
+      // 5. BETTING & ROUND LIFECYCLE LOGIC
+      // ==========================================
+      function handlePanelMainAction(panelId) {
+        AudioSystem.unlock();
+        const p = state.panels.find(x => x.id === panelId);
+        if (!p) return;
+
+        if (p.status === 'IDLE') {
+          if (state.phase === 'CRASHED' && performance.now() < (state.crashGraceUntil || 0)) {
+            return;
+          }
+          if (isNaN(p.stake) || p.stake < MIN_BET_INR) {
+            showToast('Minimum Bet ₹10', 'Increase stake to ₹10 or more', 'red');
+            AudioSystem.playClick();
+            return;
+          }
+          if (!window.OuroBridge || !window.OuroBridge.bet(p.stake, `Aviator Panel ${p.id}`)) {
+            showToast('Insufficient Wallet Balance', 'Tap + to deposit funds', 'red');
+            AudioSystem.playClick();
+            return;
+          }
+          state.balance = window.OuroBridge.getBalance();
+          p.status = 'QUEUED';
+          AudioSystem.playClick();
+          renderBalance();
+          renderBetPanels();
+          renderFeed();
+        } else if (p.status === 'QUEUED') {
+          if (window.OuroBridge) {
+            window.OuroBridge.refund(p.stake, `Aviator Cancel Panel ${p.id}`);
+            state.balance = window.OuroBridge.getBalance();
+          }
+          p.status = 'IDLE';
+          AudioSystem.playClick();
+          renderBalance();
+          renderBetPanels();
+          renderFeed();
+        } else if (p.status === 'ACTIVE' && state.phase === 'FLYING') {
+          executeCashout(p);
+        }
+      }
+
+      function executeCashout(p) {
+        if (p.status !== 'ACTIVE' || state.phase !== 'FLYING') return;
+        const mult = state.multiplier;
+        const win = Math.round(p.activeStake * mult * 100) / 100;
+        p.status = 'CASHED_OUT';
+        p.cashedOutMult = mult;
+        p.payout = win;
+
+        if (window.OuroBridge) {
+          window.OuroBridge.win(win, `Aviator Cashout @ ${mult.toFixed(2)}x`);
+          state.balance = window.OuroBridge.getBalance();
+        }
+
+        state.myBets.unshift({
+          roundId: state.roundId,
+          stake: p.activeStake,
+          cashoutMult: mult,
+          win
+        });
+        if (state.myBets.length > 40) state.myBets.pop();
+
+        if (win > (state.topWins[state.topWins.length - 1]?.win || 0)) {
+          state.topWins.push({ player: 'You', stake: p.activeStake, mult, win });
+          state.topWins.sort((a, b) => b.win - a.win);
+          state.topWins = state.topWins.slice(0, 10);
+        }
+
+        AudioSystem.playCashout();
+        spawnCashoutParticles();
+        showToast(`Cashed Out @ ${mult.toFixed(2)}x`, `+${formatMoney(win)}`, 'emerald');
+        renderBalance();
+        updatePanelButtons();
+        renderFeed();
+        saveHistory();
+      }
+
+      function startWaitingPhase(now = performance.now()) {
+        state.phase = 'WAITING';
+        state.phaseStartTime = now;
+        state.multiplier = 1.00;
+        state.currentSeed = generateHexSeed(16);
+        document.body.setAttribute('data-phase', 'WAITING');
+        document.body.setAttribute('data-has-bet', 'false');
+
+        dom.roundIdDisplay.textContent = state.roundId;
+        dom.overlayWaiting.classList.remove('hidden');
+        dom.overlayFlying.classList.add('hidden');
+        dom.overlayCrashed.classList.add('hidden');
+
+        generateLivePlayers();
+
+        state.panels.forEach(p => {
+          if (p.status === 'ACTIVE' || p.status === 'CASHED_OUT') {
+            p.status = 'IDLE';
+            p.activeStake = 0;
+            p.cashedOutMult = 0;
+            p.payout = 0;
+          }
+          if (p.mode === 'auto' && p.autoBet && p.status === 'IDLE' && p.stake >= MIN_BET_INR) {
+            if (window.OuroBridge && window.OuroBridge.bet(p.stake, `Aviator Auto Panel ${p.id}`)) {
+              state.balance = window.OuroBridge.getBalance();
+              p.status = 'QUEUED';
+            }
+          }
+        });
+
+        renderBalance();
+        renderBetPanels();
+        renderFeed();
+      }
+
+      function startFlyingPhase(now = performance.now()) {
+        state.phase = 'FLYING';
+        state.phaseStartTime = now;
+        state.multiplier = 1.00;
+
+        let totalRealBetInr = 0;
+        let hasRealBet = false;
+        state.panels.forEach(p => {
+          if (p.status === 'QUEUED') {
+            p.status = 'ACTIVE';
+            p.activeStake = p.stake;
+            p.cashedOutMult = 0;
+            p.payout = 0;
+            hasRealBet = true;
+            totalRealBetInr += p.stake;
+          }
+        });
+
+        state.crashPoint = computeRoundCrashPoint(hasRealBet, totalRealBetInr);
+        document.body.setAttribute('data-phase', 'FLYING');
+        document.body.setAttribute('data-has-bet', hasRealBet ? 'true' : 'false');
+        document.body.setAttribute('data-crash-point', state.crashPoint.toFixed(2));
+
+        dom.multiplierText.textContent = '1.00x';
+        dom.overlayWaiting.classList.add('hidden');
+        dom.overlayFlying.classList.remove('hidden');
+        dom.overlayFlying.classList.add('flex');
+        dom.overlayCrashed.classList.add('hidden');
+
+        AudioSystem.playTakeoff();
+        renderBetPanels();
+        renderFeed();
+      }
+
+      function startCrashedPhase(now = performance.now()) {
+        state.phase = 'CRASHED';
+        state.phaseStartTime = now;
+        state.crashGraceUntil = performance.now() + 600;
+        state.multiplier = state.crashPoint;
+        document.body.setAttribute('data-phase', 'CRASHED');
+
+        dom.overlayFlying.classList.add('hidden');
+        dom.overlayCrashed.classList.remove('hidden');
+        dom.overlayCrashed.classList.add('flex');
+        dom.crashedMultiplier.textContent = state.crashPoint.toFixed(2) + 'x';
+
+        AudioSystem.playCrash();
+
+        state.panels.forEach(p => {
+          if (p.status === 'ACTIVE') {
+            state.myBets.unshift({
+              roundId: state.roundId,
+              stake: p.activeStake,
+              cashoutMult: 0,
+              win: 0
+            });
+            if (state.myBets.length > 40) state.myBets.pop();
+            p.status = 'IDLE';
+            p.activeStake = 0;
+            p.cashedOutMult = 0;
+            p.payout = 0;
+          }
+        });
+
+        state.history.unshift({
+          roundId: state.roundId,
+          mult: state.crashPoint,
+          seed: state.currentSeed
+        });
+        if (state.history.length > 30) state.history.pop();
+
+        state.roundId += 1;
+        renderHistory();
+        renderBetPanels();
+        renderFeed();
+        saveHistory();
+      }
+
+      // ==========================================
+      // 6. CANVAS ANIMATION ENGINE
+      // ==========================================
+      const stageContainer = document.getElementById('stage-container');
+      const canvas = document.getElementById('game-canvas');
+      const ctx = canvas.getContext('2d');
+
+      let cw = 600, ch = 340, dpr = 1;
+      const exhaustParticles = [];
+      const celebrationParticles = [];
+      let flyAwayOffset = { x: 0, y: 0 };
+
+      function resizeCanvas() {
+        const rect = stageContainer.getBoundingClientRect();
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
+        cw = Math.max(180, rect.width || stageContainer.clientWidth || 360);
+        ch = Math.max(160, rect.height || stageContainer.clientHeight || 240);
+        canvas.width = Math.floor(cw * dpr);
+        canvas.height = Math.floor(ch * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      function spawnCashoutParticles() {
+        for (let i = 0; i < 20; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 1.5 + Math.random() * 3.5;
+          celebrationParticles.push({
+            x: cw * 0.5 + (Math.random() - 0.5) * 50,
+            y: ch * 0.5 + (Math.random() - 0.5) * 30,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 1.5,
+            life: 1,
+            color: Math.random() > 0.4 ? '#22c55e' : '#f59e0b',
+            size: 2.5 + Math.random() * 2.5
+          });
+        }
+      }
+
+      function drawSunburst(now) {
+        const cx = 0;
+        const cy = ch;
+        const radius = Math.hypot(cw, ch);
+        const rayCount = 14;
+        const rotOffset = (now * 0.00008) % (Math.PI * 2);
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(rotOffset);
+        for (let i = 0; i < rayCount; i++) {
+          if (i % 2 === 0) {
+            const a1 = (i / rayCount) * Math.PI * 2;
+            const a2 = ((i + 1) / rayCount) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.arc(0, 0, radius, a1, a2);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.018)';
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+      }
+
+      function drawPlane(x, y, angle, propAngle, isCrashed) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+
+        const glow = ctx.createRadialGradient(0, 0, 4, 0, 0, 40);
+        glow.addColorStop(0, isCrashed ? 'rgba(229,9,20,0.45)' : 'rgba(229,9,20,0.32)');
+        glow.addColorStop(1, 'rgba(229,9,20,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(0, 0, 40, 0, Math.PI * 2);
+        ctx.fill();
+
+        const s = cw < 450 ? 0.85 : 1.05;
+        ctx.scale(s, s);
+
+        ctx.fillStyle = '#b91c1c';
+        ctx.beginPath();
+        ctx.moveTo(-24, -2);
+        ctx.lineTo(-32, -14);
+        ctx.lineTo(-18, -14);
+        ctx.lineTo(-12, -2);
+        ctx.closePath();
+        ctx.fill();
+
+        const bodyGrad = ctx.createLinearGradient(-26, -8, 28, 8);
+        bodyGrad.addColorStop(0, '#dc2626');
+        bodyGrad.addColorStop(0.6, '#ef4444');
+        bodyGrad.addColorStop(1, '#e50914');
+        ctx.fillStyle = bodyGrad;
+        ctx.beginPath();
+        ctx.moveTo(-26, 2);
+        ctx.quadraticCurveTo(-10, -10, 18, -5);
+        ctx.quadraticCurveTo(30, -2, 32, 3);
+        ctx.quadraticCurveTo(26, 9, 8, 9);
+        ctx.lineTo(-22, 7);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#e0f2fe';
+        ctx.beginPath();
+        ctx.ellipse(9, -3, 6.5, 3, 0.15, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#991b1b';
+        ctx.beginPath();
+        ctx.moveTo(-6, 3);
+        ctx.lineTo(10, 3);
+        ctx.lineTo(-4, 15);
+        ctx.lineTo(-14, 14);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = 2.2;
+        const propH = 12 * Math.sin(propAngle);
+        ctx.beginPath();
+        ctx.moveTo(32, -propH);
+        ctx.lineTo(32, propH);
+        ctx.stroke();
+
+        ctx.fillStyle = '#f8fafc';
+        ctx.beginPath();
+        ctx.arc(32, 2, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      function renderCanvas(now, dt) {
+        ctx.clearRect(0, 0, cw, ch);
+        drawSunburst(now);
+
+        let glowColor = 'rgba(30, 58, 138, 0.14)';
+        if (state.phase === 'FLYING') {
+          if (state.multiplier >= 10) glowColor = 'rgba(229, 9, 20, 0.2)';
+          else if (state.multiplier >= 2) glowColor = 'rgba(139, 92, 246, 0.18)';
+        } else if (state.phase === 'CRASHED') {
+          glowColor = 'rgba(229, 9, 20, 0.14)';
+        }
+        const bgGrad = ctx.createRadialGradient(cw * 0.5, ch * 0.5, 10, cw * 0.5, ch * 0.5, cw * 0.7);
+        bgGrad.addColorStop(0, glowColor);
+        bgGrad.addColorStop(1, 'rgba(12, 13, 18, 0)');
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, cw, ch);
+
+        const padLeft = 22;
+        const padBottom = 22;
+        const startX = padLeft;
+        const startY = ch - padBottom;
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(padLeft, 12);
+        ctx.lineTo(padLeft, startY);
+        ctx.lineTo(cw - 12, startY);
+        ctx.stroke();
+
+        if (state.phase === 'WAITING') {
+          flyAwayOffset = { x: 0, y: 0 };
+          drawPlane(startX + 18, startY - 12, -0.15, now * 0.03, false);
+        } else if (state.phase === 'FLYING') {
+          const elapsedSec = Math.max(0, (now - state.phaseStartTime) / 1000);
+          const progress = Math.max(0, Math.min(1, 1 - Math.exp(-elapsedSec * 0.42)));
+          const bob = Math.sin(elapsedSec * 3.0) * 7 * progress;
+          const endX = startX + (cw - padLeft * 2 - 42) * progress;
+          const endY = startY - (ch - padBottom * 2 - 46) * Math.pow(progress, 0.85) + bob;
+
+          if (Number.isFinite(endX) && Number.isFinite(endY)) {
+            const ctrlX = startX + (endX - startX) * 0.58;
+            const ctrlY = startY - (startY - endY) * 0.14;
+
+            const fillGrad = ctx.createLinearGradient(0, endY, 0, startY);
+            fillGrad.addColorStop(0, 'rgba(229, 9, 20, 0.36)');
+            fillGrad.addColorStop(1, 'rgba(229, 9, 20, 0.02)');
+
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.quadraticCurveTo(ctrlX, ctrlY, endX, endY);
+            ctx.lineTo(endX, startY);
+            ctx.closePath();
+            ctx.fillStyle = fillGrad;
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.quadraticCurveTo(ctrlX, ctrlY, endX, endY);
+            ctx.strokeStyle = '#e50914';
+            ctx.lineWidth = 3.5;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+
+            if (Math.random() < 0.7) {
+              exhaustParticles.push({
+                x: endX - 24,
+                y: endY + 4,
+                vx: -1.4 - Math.random() * 1.8,
+                vy: 0.5 + (Math.random() - 0.5) * 1.1,
+                life: 1,
+                size: 1.8 + Math.random() * 2
+              });
+            }
+
+            const angle = Math.atan2(endY - ctrlY, endX - ctrlX);
+            drawPlane(endX, endY, angle, now * 0.055, false);
+          }
+        } else if (state.phase === 'CRASHED') {
+          const crashElapsed = (now - state.phaseStartTime) / 1000;
+          flyAwayOffset.x += (dt / 16) * 10;
+          flyAwayOffset.y -= (dt / 16) * 6.5;
+
+          const baseX = cw * 0.75 + flyAwayOffset.x;
+          const baseY = ch * 0.28 + flyAwayOffset.y;
+          if (crashElapsed < 1.2) {
+            drawPlane(baseX, baseY, -0.45, now * 0.06, true);
+          }
+        }
+
+        for (let i = exhaustParticles.length - 1; i >= 0; i--) {
+          const pt = exhaustParticles[i];
+          pt.x += pt.vx;
+          pt.y += pt.vy;
+          pt.life -= 0.045;
+          if (pt.life <= 0) { exhaustParticles.splice(i, 1); continue; }
+          ctx.fillStyle = `rgba(251, 146, 60, ${pt.life * 0.65})`;
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, pt.size * pt.life, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        for (let i = celebrationParticles.length - 1; i >= 0; i--) {
+          const pt = celebrationParticles[i];
+          pt.x += pt.vx;
+          pt.y += pt.vy;
+          pt.vy += 0.08;
+          pt.life -= 0.025;
+          if (pt.life <= 0) { celebrationParticles.splice(i, 1); continue; }
+          ctx.fillStyle = pt.color;
+          ctx.globalAlpha = pt.life;
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      // ==========================================
+      // 7. MAIN GAME LOOP
+      // ==========================================
+      let lastFrameTime = performance.now();
+      let lastUiFeedTick = 0;
+
+      function gameLoop(now) {
+        const dt = Math.max(0, Math.min(50, now - lastFrameTime));
+        lastFrameTime = now;
+
+        try {
+          if (state.phase === 'WAITING') {
+            const elapsed = Math.max(0, now - state.phaseStartTime);
+            const remaining = Math.max(0, WAITING_DURATION_MS - elapsed);
+            const pct = (remaining / WAITING_DURATION_MS) * 100;
+            dom.waitingProgress.style.width = pct.toFixed(1) + '%';
+            dom.waitingSeconds.textContent = (remaining / 1000).toFixed(1) + 's';
+            if (elapsed >= WAITING_DURATION_MS) startFlyingPhase(now);
+          } else if (state.phase === 'FLYING') {
+            const elapsedSec = Math.max(0, (now - state.phaseStartTime) / 1000);
+            const currentMult = Math.floor(Math.exp(0.092 * elapsedSec) * 100) / 100;
+            state.multiplier = Math.max(1.00, currentMult);
+
+            if (state.multiplier >= state.crashPoint) {
+              startCrashedPhase(now);
+            } else {
+              dom.multiplierText.textContent = state.multiplier.toFixed(2) + 'x';
+              dom.multiplierText.classList.remove('text-white', 'text-purple-300', 'text-amber-300');
+              if (state.multiplier >= 10) dom.multiplierText.classList.add('text-amber-300');
+              else if (state.multiplier >= 2) dom.multiplierText.classList.add('text-purple-300');
+              else dom.multiplierText.classList.add('text-white');
+
+              AudioSystem.updateEngine(state.multiplier);
+
+              state.panels.forEach(p => {
+                if (p.status === 'ACTIVE' && p.autoCashoutEnabled && state.multiplier >= p.autoCashoutTarget) {
+                  executeCashout(p);
+                }
+              });
+
+              let botChanged = false;
+              state.livePlayers.forEach(bot => {
+                if (!bot.cashedOut && state.multiplier >= bot.target) {
+                  bot.cashedOut = true;
+                  bot.mult = state.multiplier;
+                  bot.win = Math.round(bot.stake * state.multiplier * 100) / 100;
+                  botChanged = true;
+                }
+              });
+
+              updatePanelButtons();
+              if (botChanged && state.activeTab === 'all' && now - lastUiFeedTick > 220) {
+                lastUiFeedTick = now;
+                renderFeed();
+              }
+            }
+          } else if (state.phase === 'CRASHED') {
+            const elapsed = Math.max(0, now - state.phaseStartTime);
+            if (elapsed >= CRASH_PAUSE_MS) startWaitingPhase(now);
+          }
+
+          renderCanvas(now, dt);
+        } finally {
+          requestAnimationFrame(gameLoop);
+        }
+      }
+
+      // ==========================================
+      // 8. EVENT LISTENERS
+      // ==========================================
+      function bindEvents() {
+        const firstGestureUnlock = () => {
+          AudioSystem.unlock();
+          document.removeEventListener('pointerdown', firstGestureUnlock);
+          document.removeEventListener('touchstart', firstGestureUnlock);
+          document.removeEventListener('click', firstGestureUnlock);
+        };
+        document.addEventListener('pointerdown', firstGestureUnlock, { passive: true });
+        document.addEventListener('touchstart', firstGestureUnlock, { passive: true });
+        document.addEventListener('click', firstGestureUnlock, { passive: true });
+
+        document.getElementById('music-btn').addEventListener('click', () => {
+          const muted = AudioSystem.toggleMusic();
+          document.getElementById('music-icon-on').classList.toggle('hidden', muted);
+          document.getElementById('music-icon-off').classList.toggle('hidden', !muted);
+        });
+
+        document.getElementById('sound-btn').addEventListener('click', () => {
+          const muted = AudioSystem.toggleSfx();
+          document.getElementById('sound-icon-on').classList.toggle('hidden', muted);
+          document.getElementById('sound-icon-off').classList.toggle('hidden', !muted);
+        });
+
+        document.getElementById('balance-btn').addEventListener('click', () => {
+          AudioSystem.playClick();
+          if (window.OuroBridge) {
+            window.OuroBridge.openTopUp();
+          }
+        });
+
+        document.getElementById('fair-btn').addEventListener('click', () => {
+          AudioSystem.playClick();
+          document.getElementById('fair-modal').classList.remove('hidden');
+        });
+
+        document.querySelectorAll('[data-close-modal]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            AudioSystem.playClick();
+            document.getElementById(btn.dataset.closeModal).classList.add('hidden');
+          });
+        });
+
+        document.getElementById('history-expand-btn').addEventListener('click', () => {
+          AudioSystem.playClick();
+          dom.historyDropdown.classList.toggle('hidden');
+          dom.historyChevron.classList.toggle('rotate-180');
+        });
+
+        document.addEventListener('click', e => {
+          const pill = e.target.closest('.history-pill');
+          if (pill) {
+            AudioSystem.playClick();
+            dom.fairRoundLabel.textContent = `Round #${pill.dataset.roundId}`;
+            dom.fairMultLabel.textContent = `${pill.dataset.roundMult}x`;
+            dom.fairSeedLabel.textContent = pill.dataset.roundSeed;
+            document.getElementById('fair-modal').classList.remove('hidden');
+            dom.historyDropdown.classList.add('hidden');
+            dom.historyChevron.classList.remove('rotate-180');
+          }
+        });
+
+        document.querySelectorAll('.feed-tab').forEach(tab => {
+          tab.addEventListener('click', () => {
+            AudioSystem.playClick();
+            state.activeTab = tab.dataset.tab;
+            document.querySelectorAll('.feed-tab').forEach(t => {
+              t.classList.remove('bg-[#242731]', 'text-white');
+              t.classList.add('text-zinc-400');
+            });
+            tab.classList.add('bg-[#242731]', 'text-white');
+            tab.classList.remove('text-zinc-400');
+            renderFeed();
+          });
+        });
+
+        dom.betPanelsContainer.addEventListener('click', e => {
+          const btn = e.target.closest('[data-action]');
+          if (!btn) return;
+          const action = btn.dataset.action;
+          const panelId = Number(btn.dataset.panel);
+          const p = state.panels.find(x => x.id === panelId);
+          if (!p) return;
+
+          if (action === 'main') {
+            handlePanelMainAction(panelId);
+          } else if (action === 'mode') {
+            AudioSystem.playClick();
+            p.mode = btn.dataset.mode;
+            renderBetPanels();
+          } else if (action === 'stake-step') {
+            if (p.status !== 'IDLE') return;
+            AudioSystem.playClick();
+            const delta = Number(btn.dataset.delta);
+            p.stake = Math.max(MIN_BET_INR, Math.min(50000, Math.round((p.stake + delta) * 100) / 100));
+            renderBetPanels();
+          } else if (action === 'stake-preset') {
+            if (p.status !== 'IDLE') return;
+            AudioSystem.playClick();
+            p.stake = Number(btn.dataset.amount);
+            renderBetPanels();
+          }
+        });
+
+        dom.betPanelsContainer.addEventListener('input', e => {
+          const el = e.target;
+          const action = el.dataset.action;
+          const panelId = Number(el.dataset.panel);
+          const p = state.panels.find(x => x.id === panelId);
+          if (!p) return;
+
+          if (action === 'stake-input') {
+            const val = parseFloat(el.value);
+            p.stake = isNaN(val) ? 0 : Math.max(0, Math.min(50000, Math.round(val * 100) / 100));
+            updatePanelButtons();
+          } else if (action === 'autocash-input') {
+            const val = parseFloat(el.value);
+            if (!isNaN(val) && val >= 1.05) {
+              p.autoCashoutTarget = Math.min(20, Math.round(val * 100) / 100);
+            }
+          }
+        });
+
+        dom.betPanelsContainer.addEventListener('change', e => {
+          const el = e.target;
+          const action = el.dataset.action;
+          const panelId = Number(el.dataset.panel);
+          const p = state.panels.find(x => x.id === panelId);
+          if (!p) return;
+
+          if (action === 'stake-input') {
+            const val = parseFloat(el.value);
+            if (!isNaN(val) && val > 50000) {
+              p.stake = 50000;
+              el.value = '50000';
+              updatePanelButtons();
+            }
+          } else if (action === 'toggle-autobet') {
+            AudioSystem.playClick();
+            p.autoBet = el.checked;
+          } else if (action === 'toggle-autocash') {
+            AudioSystem.playClick();
+            p.autoCashoutEnabled = el.checked;
+          }
+        });
+
+        setInterval(() => {
+          const base = 1400 + Math.floor(Math.random() * 120);
+          dom.onlineCount.textContent = base.toLocaleString('en-US');
+        }, 6000);
+      }
+
+      // ==========================================
+      // 9. BOOTSTRAP
+      // ==========================================
+      function initAviator() {
+        loadSavedHistory();
+        if (window.OuroBridge) {
+          state.balance = window.OuroBridge.init({
+            gameId: 'aviator',
+            gameTitle: 'Aviator',
+            onBalanceChange: (bal) => {
+              state.balance = bal;
+              renderBalance();
+            },
+            onDenied: (errMsg) => {
+              showToast('Bet Declined', errMsg || 'Check wallet balance', 'red');
+            }
+          });
+        }
+        renderBalance();
+        renderHistory();
+        renderBetPanels();
+        bindEvents();
+
+        resizeCanvas();
+        if (window.ResizeObserver) {
+          new ResizeObserver(resizeCanvas).observe(stageContainer);
+        } else {
+          window.addEventListener('resize', resizeCanvas);
+        }
+
+        const startNow = performance.now();
+        lastFrameTime = startNow;
+        startWaitingPhase(startNow);
+        requestAnimationFrame(gameLoop);
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initAviator);
+      } else {
+        initAviator();
+      }
+    })();
+  </script>
+</body>
+</html>

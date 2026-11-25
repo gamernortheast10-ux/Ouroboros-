@@ -261,3 +261,95 @@ export function generateAutoNewsItem(
     comments: [],
   };
 }
+
+const COMMUNITY_NICK_PREFIXES = [
+  'Aarav', 'Karan', 'Pooja', 'Ritik', 'Sneha', 'Nikhil', 'Zoya', 'Rohit',
+  'Anjali', 'Vikas', 'Tanvi', 'Sameer', 'Ishita', 'Harsh', 'Diya', 'Yash',
+  'Manish', 'Kriti', 'Arpit', 'Nandini', 'Kabir', 'Riya', 'Siddharth', 'Meera',
+  'Dev', 'Tanya', 'Pranav', 'Neha', 'Vikram', 'Aryan', 'Sana', 'Gaurav',
+  'Simran', 'Deepak', 'Shreya', 'Kunal', 'Aditi', 'Rohan', 'Farhan', 'Payal',
+  'Sagar', 'Mansi', 'Nitin', 'Bhavna', 'Tushar', 'Ankita', 'Varun', 'Rashmi',
+];
+
+const HANDLE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';
+
+export function generateUniqueCommunityHandle(
+  existingHandles: Set<string> = new Set(),
+  seed = Date.now()
+): string {
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const prefixIdx = Math.floor(
+      Math.abs(Math.sin(seed * 0.13 + attempt * 7.1 + Math.random() * 100)) *
+        COMMUNITY_NICK_PREFIXES.length
+    ) % COMMUNITY_NICK_PREFIXES.length;
+    const prefix = COMMUNITY_NICK_PREFIXES[prefixIdx];
+    const sep = attempt % 2 === 0 ? '_' : '';
+    const suffixLen = 3 + (attempt % 3);
+    let suffix = '';
+    for (let i = 0; i < suffixLen; i++) {
+      const charIdx = Math.floor(Math.random() * HANDLE_CHARS.length);
+      suffix += HANDLE_CHARS[charIdx];
+    }
+    const candidate = `${prefix}${sep}${suffix}`;
+    if (!existingHandles.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `Trader_${Date.now().toString(36).slice(-5)}`;
+}
+
+export function generateLiveCommunityMessage(
+  assets: MarketAsset[],
+  predictions: PredictionMarket[],
+  recentMessages: CommunityMessage[] = [],
+  nowMs = Date.now()
+): CommunityMessage {
+  const existingHandles = new Set(recentMessages.map((m) => m.username));
+  const username = generateUniqueCommunityHandle(existingHandles, nowMs);
+
+  const depositAmounts = [100, 200, 300, 500, 1000, 1500, 2000, 5000];
+  const tradeAmounts = [100, 250, 500, 1000, 1500, 2500];
+  const depAmt = depositAmounts[Math.floor(Math.random() * depositAmounts.length)];
+  const tradeAmt = tradeAmounts[Math.floor(Math.random() * tradeAmounts.length)];
+  const winAmt = Math.round(tradeAmt * (1.45 + Math.random() * 1.1));
+
+  const asset =
+    assets[Math.floor(Math.random() * Math.max(1, assets.length))] ?? {
+      symbol: 'APPLE',
+    };
+  const market =
+    predictions[Math.floor(Math.random() * Math.max(1, predictions.length))] ?? {
+      subLabel: 'GTA VI',
+    };
+  const marketShort = market.subLabel.split('·')[0].trim();
+  const dir = Math.random() >= 0.45 ? 'UP' : 'DOWN';
+  const voteChoice = Math.random() >= 0.5 ? 'YES' : 'NO';
+
+  const templates = [
+    `Maine ₹${depAmt} deposit kiya UPI se, turant wallet mein aa gaya`,
+    `Maine ₹${tradeAmt.toLocaleString('en-IN')} vote daal diya ${marketShort} ${voteChoice} pe`,
+    `Just deposited ₹${depAmt.toLocaleString('en-IN')} via GPay — instant credit!`,
+    `${asset.symbol} pe ₹${tradeAmt.toLocaleString('en-IN')} ${dir} trade lagaya abhi`,
+    `Chicken Road pe ₹${winAmt.toLocaleString('en-IN')} cashout kiya just now`,
+    `Color Predict green round hit! +₹${winAmt.toLocaleString('en-IN')} profit`,
+    `PhonePe se ₹${depAmt.toLocaleString('en-IN')} add kiya wallet mein, live khel raha hu`,
+    `${asset.symbol} 1m chart pe +₹${winAmt.toLocaleString('en-IN')} win hua`,
+    `Mines game mein 4 safe gems nikle, ₹${winAmt.toLocaleString('en-IN')} claim kiya`,
+    `Maine ₹${tradeAmt.toLocaleString('en-IN')} ka ${dir} position liya ${asset.symbol} pe`,
+    `Daily check-in bonus aur ₹${depAmt} deposit dono ready hai`,
+    `Crypto Jackpot vault spin se ₹${winAmt.toLocaleString('en-IN')} win mila`,
+  ];
+
+  const recentTexts = new Set(recentMessages.slice(-6).map((m) => m.text));
+  let text = templates[Math.floor(Math.random() * templates.length)];
+  for (let i = 0; i < templates.length && recentTexts.has(text); i++) {
+    text = templates[i];
+  }
+
+  return {
+    id: `cm-live-${nowMs}-${Math.random().toString(36).slice(2, 6)}`,
+    username,
+    text,
+  };
+}
+

@@ -16,7 +16,6 @@ interface AllBetsViewProps {
   state: AppState;
   onBack: () => void;
   onOpenPrediction: (market: PredictionMarket, choice: 'yes' | 'no') => void;
-  onSettleBet: (betId: string, won: boolean) => void;
 }
 
 type BetsTab = 'live_bets' | 'history';
@@ -45,7 +44,6 @@ export const AllBetsView: React.FC<AllBetsViewProps> = ({
   state,
   onBack,
   onOpenPrediction,
-  onSettleBet,
 }) => {
   const [activeTab, setActiveTab] = useState<BetsTab>('live_bets');
   const [category, setCategory] = useState<MarketCategory>('All Markets');
@@ -235,22 +233,40 @@ export const AllBetsView: React.FC<AllBetsViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => onOpenPrediction(market, 'yes')}
-                        className="preserve-white btn-press min-h-[42px] rounded-xl font-bold text-xs text-white bg-emerald-600 hover:bg-emerald-500"
-                      >
-                        {t(lang, 'betYes')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onOpenPrediction(market, 'no')}
-                        className="preserve-white btn-press min-h-[42px] rounded-xl font-bold text-xs text-white bg-rose-600 hover:bg-rose-500"
-                      >
-                        {t(lang, 'betNo')}
-                      </button>
-                    </div>
+                    {market.resolvedOutcome ? (
+                      <div className="space-y-2 pt-1">
+                        <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs font-bold text-emerald-300">
+                          <span>Settled via Live Web: {market.resolvedOutcome.toUpperCase()}</span>
+                          {market.resolvedAt && (
+                            <span className="text-[10px] font-mono-nums text-emerald-200/80">
+                              {market.resolvedAt}
+                            </span>
+                          )}
+                        </div>
+                        {market.resolutionSummary && (
+                          <p className="text-[11px] text-slate-300 leading-relaxed">
+                            {market.resolutionSummary}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => onOpenPrediction(market, 'yes')}
+                          className="preserve-white btn-press min-h-[42px] rounded-xl font-bold text-xs text-white bg-emerald-600 hover:bg-emerald-500"
+                        >
+                          {t(lang, 'betYes')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenPrediction(market, 'no')}
+                          className="preserve-white btn-press min-h-[42px] rounded-xl font-bold text-xs text-white bg-rose-600 hover:bg-rose-500"
+                        >
+                          {t(lang, 'betNo')}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </article>
               );
@@ -337,26 +353,10 @@ export const AllBetsView: React.FC<AllBetsViewProps> = ({
                     </span>
 
                     {bet.status === 'open' ? (
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1 text-amber-300 font-semibold">
-                          <Clock className="w-3.5 h-3.5" />
-                          Pending
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => onSettleBet(bet.id, true)}
-                          className="btn-press px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/35 text-emerald-300 font-bold"
-                        >
-                          Settle Win
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onSettleBet(bet.id, false)}
-                          className="btn-press px-2.5 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600/35 text-rose-300 font-bold"
-                        >
-                          Settle Loss
-                        </button>
-                      </div>
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-semibold text-[11px]">
+                        <Clock className="w-3.5 h-3.5" />
+                        Pending Live Web Result
+                      </span>
                     ) : bet.status === 'won' ? (
                       <span className="inline-flex items-center gap-1 text-emerald-400 font-bold font-mono-nums">
                         <CheckCircle2 className="w-3.5 h-3.5" />
@@ -369,6 +369,26 @@ export const AllBetsView: React.FC<AllBetsViewProps> = ({
                       </span>
                     )}
                   </div>
+                  {bet.resolutionSummary && (
+                    <div className="rounded-xl bg-[#0b0814]/80 border border-white/[0.06] p-2.5 text-[11px] text-slate-300 space-y-1">
+                      <p>{bet.resolutionSummary}</p>
+                      {bet.resolutionSources && bet.resolutionSources.length > 0 && (
+                        <div className="flex flex-wrap gap-2 pt-0.5">
+                          {bet.resolutionSources.slice(0, 3).map((src, i) => (
+                            <a
+                              key={`${src.uri}-${i}`}
+                              href={src.uri}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10.5px] font-semibold text-[#a78bfa] hover:underline"
+                            >
+                              {src.title || 'Verified Source'} ↗
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

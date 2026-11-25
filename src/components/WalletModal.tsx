@@ -85,6 +85,7 @@ interface WalletModalProps {
   themeMode?: ThemeMode;
   merchantUpiPool?: MerchantUpiConfig[];
   platformSettings?: PlatformSettings;
+  isFirstDeposit?: boolean;
   minDepositInr?: number;
   minWithdrawInr?: number;
   onClose: () => void;
@@ -120,6 +121,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
   themeMode = 'dark',
   merchantUpiPool,
   platformSettings,
+  isFirstDeposit = false,
   minDepositInr,
   minWithdrawInr,
   onClose,
@@ -862,6 +864,16 @@ export const WalletModal: React.FC<WalletModalProps> = ({
                   )}
                 </div>
               </div>
+
+              {isFirstDeposit && platformSettings?.firstDepositBonusEnabled !== false && (
+                <div className="rounded-xl px-3.5 py-2.5 bg-emerald-500/15 border border-emerald-500/35 text-xs font-semibold text-emerald-400 flex items-center justify-between gap-2">
+                  <span>
+                    New User Welcome Bonus: +{platformSettings?.firstDepositBonusPct ?? 5}% extra
+                    play credit (up to ₹{platformSettings?.firstDepositBonusMaxInr ?? 100}) on your
+                    1st verified deposit!
+                  </span>
+                </div>
+              )}
 
               {platformSettings?.depositsPaused && (
                 <div className="rounded-xl px-3.5 py-2.5 bg-amber-500/15 border border-amber-500/35 text-xs font-semibold text-amber-500 flex items-center gap-2">

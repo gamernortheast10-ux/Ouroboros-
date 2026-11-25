@@ -29,6 +29,7 @@ import {
 import { PortfolioView } from './components/PortfolioView';
 import { PredictionModal } from './components/PredictionModal';
 import { ProfileView } from './components/ProfileView';
+import { TermsModal } from './components/TermsModal';
 import { TradeModal } from './components/TradeModal';
 import { TradeTerminalView } from './components/TradeTerminalView';
 import {
@@ -67,6 +68,7 @@ import {
 } from './types/trading';
 import {
   generateAutoNewsItem,
+  generateLiveCommunityMessage,
   postCommunityMessage,
 } from './utils/chartPatterns';
 import { fetchLiveFxRates } from './utils/fxRates';
@@ -77,6 +79,7 @@ import {
 } from './utils/notifications';
 import {
   DEFAULT_FX_RATES,
+  OwnerPredictionDraft,
   adminApproveWithdrawal,
   adminRejectAndRefundWithdrawal,
   adminRejectDeposit,
@@ -85,19 +88,24 @@ import {
   applyTopUp,
   applyWithdraw,
   GameWalletTxParams,
+  changeAccountPassword,
+  claimDailyCheckIn,
   closeTradePosition,
   consumePendingTransferForUser,
+  createOwnerPredictionMarket,
   executeTradeOrder,
   formatCurrency,
   formatExactDateTime,
   generateReferralCode,
   getEffectivePlatformSettings,
   getEffectiveReferralConfig,
+  hasVerifiedDeposit,
   isOwnerAdmin,
   placePredictionBet,
   redeemGiftCode,
   sellUsdtToInr,
   settleExpiredPositions,
+  settlePredictionMarketByOutcome,
   tickFxRates,
   tickMarketPrices,
   validateAndResolveReferralCode,
@@ -292,7 +300,12 @@ export default function App() {
     loadInitialNotifications()
   );
   const [notifOpen, setNotifOpen] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
+  const [hasUnreadNews, setHasUnreadNews] = useState(true);
   const [activeNav, setActiveNav] = useState<NavSection>('markets');
+  const activeNavRef = React.useRef<NavSection>(activeNav);
+  activeNavRef.current = activeNav;
   const [terminalAssetId, setTerminalAssetId] = useState<string | null>(null);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [gamesReturnNav, setGamesReturnNav] = useState<'markets' | 'games'>('markets');
@@ -323,6 +336,20 @@ export default function App() {
     tone: 'success' | 'error' | 'info' = 'info'
   ) => {
     setToast({ text, tone });
+  };
+
+  const requireAuth = (
+    message = 'Please sign in or create an account to continue.'
+  ): boolean => {
+    if (state.isAuthenticated) return true;
+    setShowAuthModal(true);
+    showToast(message, 'info');
+    return false;
+  };
+
+  const openNewsFeed = () => {
+    setHasUnreadNews(false);
+    setActiveNav('feed');
   };
 
   const pushNotification = (
@@ -552,10 +579,29 @@ export default function App() {
       });
     }, 18000);
 
+    const liveChatTimer = window.setInterval(() => {
+      setState((prev) => {
+        const existing = prev.communityMessages ?? [];
+        const nextMsg = generateLiveCommunityMessage(
+          prev.assets,
+          prev.predictions,
+          existing
+        );
+        return {
+          ...prev,
+          communityMessages: [...existing, nextMsg].slice(-45),
+        };
+      });
+      if (activeNavRef.current !== 'feed') {
+        setHasUnreadNews(true);
+      }
+    }, 6500);
+
     return () => {
       window.clearInterval(priceTimer);
       window.clearInterval(countdownTimer);
       window.clearInterval(autoNewsTimer);
+      window.clearInterval(liveChatTimer);
     };
   }, []);
 
@@ -719,7 +765,7 @@ export default function App() {
     if (found.password !== params.password) {
       return {
         ok: false,
-        error: 'Incorrect password. Use Forgot Password to reset it.',
+        error: 'Incorrect password. Please try again.',
       };
     }
     if (found.banned) {
@@ -794,7 +840,10 @@ export default function App() {
         },
       };
     });
-    setActiveNav('markets');
+    setShowAuthModal(false);
+    if (activeNav === 'admin' && !isOwnerAdmin(cleanEmail)) {
+      setActiveNav('markets');
+    }
     showToast(`Welcome back, ${found.name}`, 'success');
     return { ok: true };
   };
@@ -911,7 +960,10 @@ export default function App() {
       };
     });
 
-    setActiveNav('markets');
+    setShowAuthModal(false);
+    if (activeNav === 'admin') {
+      setActiveNav('markets');
+    }
     showToast(
       refCheck.normalizedCode
         ? `Account created! Place your 1st bet to unlock your referral bonus`
@@ -921,31 +973,42 @@ export default function App() {
     return { ok: true };
   };
 
-  const handleResetPassword = (params: {
-    email: string;
-    newPassword: string;
-  }) => {
-    const cleanEmail = params.email.trim().toLowerCase();
-    const accounts = state.registeredAccounts ?? [];
-    const exists = accounts.some(
-      (a) => a.email.trim().toLowerCase() === cleanEmail
-    );
-    if (!exists) {
-      return {
-        ok: false,
-        error: 'No registered account matches that email address.',
-      };
+  const handleClaimDailyCheckIn = () => {
+    if (!requireAuth('Please sign in to claim your daily check-in reward.')) {
+      return;
     }
+    const res = claimDailyCheckIn(state);
+    if (!res.ok) {
+      if (res.reason === 'deposit_required') {
+        showToast(res.error, 'info');
+        setWalletModalMode('topup');
+      } else {
+        showToast(res.error, 'info');
+      }
+      return;
+    }
+    setState(res.nextState);
+    pushNotification('deposit_ok', {
+      title: `Day ${res.streak} Check-In Claimed`,
+      msg: `₹${res.rewardInr.toFixed(2)} daily bonus credited to your play wallet.`,
+      route: 'wallet',
+    });
+    showToast(
+      `Day ${res.streak} Check-In: +₹${res.rewardInr.toFixed(2)} credited!`,
+      'success'
+    );
+  };
 
-    setState((prev) => ({
-      ...prev,
-      registeredAccounts: (prev.registeredAccounts ?? []).map((a) =>
-        a.email.trim().toLowerCase() === cleanEmail
-          ? { ...a, password: params.newPassword }
-          : a
-      ),
-    }));
-    showToast('Password updated. You can now sign in.', 'success');
+  const handleChangePassword = (params: {
+    currentPassword: string;
+    newPassword: string;
+  }): { ok: boolean; error?: string } => {
+    const res = changeAccountPassword(state, params);
+    if (!res.ok) {
+      return { ok: false, error: res.error };
+    }
+    setState(res.nextState);
+    showToast('Account password updated successfully', 'success');
     return { ok: true };
   };
 
@@ -1058,67 +1121,39 @@ export default function App() {
     );
   };
 
-  const handleSettleBet = (betId: string, won: boolean) => {
-    const target = state.bets.find((b) => b.id === betId && b.status === 'open');
-    if (!target) return;
-    const payout = won
-      ? Math.round(target.stake * target.multiplier * 100) / 100
-      : 0;
-    const profit = Math.round((payout - target.stake) * 100) / 100;
-    const now = Date.now();
-    const stamp = formatExactDateTime(now);
+  const handleCreatePredictionMarket = (draft: OwnerPredictionDraft) => {
+    if (!ownerAuthorized) return;
+    const res = createOwnerPredictionMarket(state, state.profile.email, draft);
+    if (!res.ok) {
+      showToast(res.error, 'error');
+      return;
+    }
+    setState(res.nextState);
+    showToast(`Published live bet: ${res.market.question.slice(0, 40)}...`, 'success');
+  };
 
-    setState((prev) => {
-      const nextBalance = Math.round((prev.balance + payout) * 100) / 100;
-      const nextWithdrawable =
-        won && payout > 0
-          ? Math.min(
-              nextBalance,
-              Math.round(((prev.withdrawableBalance ?? 0) + payout) * 100) / 100
-            )
-          : Math.min(nextBalance, prev.withdrawableBalance ?? 0);
-
-      return {
-        ...prev,
-        balance: nextBalance,
-        withdrawableBalance: nextWithdrawable,
-        realizedPnl: Math.round((prev.realizedPnl + profit) * 100) / 100,
-        todayReceived:
-          profit > 0
-            ? Math.round((prev.todayReceived + profit) * 100) / 100
-            : prev.todayReceived,
-        bets: prev.bets.map((b) =>
-          b.id === betId
-            ? { ...b, status: won ? 'won' : 'lost', payout }
-            : b
-        ),
-        transactions: [
-          {
-            id: `tx-${now}`,
-            type: 'trade_close',
-            title: `Prediction Settled (${target.choice.toUpperCase()})`,
-            amount: payout,
-            timestamp: stamp,
-            status: 'Settled',
-            meta: `${target.multiplier.toFixed(2)}x Payout`,
-            createdAtMs: now,
-          },
-          ...prev.transactions,
-        ],
-      };
+  const handleResolvePredictionMarket = (params: {
+    marketId: string;
+    outcome: 'yes' | 'no';
+    summary: string;
+    sources?: Array<{ title: string; uri: string }>;
+  }) => {
+    if (!ownerAuthorized) return;
+    const res = settlePredictionMarketByOutcome(state, {
+      ownerEmail: state.profile.email,
+      marketId: params.marketId,
+      outcome: params.outcome,
+      summary: params.summary,
+      sources: params.sources,
     });
-    pushNotification('trade_win', {
-      title: won ? 'Prediction Won' : 'Prediction Settled',
-      msg: won
-        ? `₹${payout.toFixed(2)} credited to withdrawable balance.`
-        : `Prediction settled with ₹0 payout.`,
-      route: 'portfolio',
-    });
+    if (!res.ok) {
+      showToast(res.error, 'error');
+      return;
+    }
+    setState(res.nextState);
     showToast(
-      won
-        ? `Prediction payout +₹${payout.toFixed(2)} unlocked`
-        : 'Prediction settled',
-      won ? 'success' : 'info'
+      `Settled ${params.outcome.toUpperCase()}: ${res.winnersCount}/${res.settledCount} won · Payout ₹${res.totalPayoutInr} · Fee ₹${res.totalCommissionInr}`,
+      'success'
     );
   };
 
@@ -1437,15 +1472,19 @@ export default function App() {
       return;
     }
     setState(res.nextState);
+    const bonusText =
+      res.firstDepositBonusInr > 0
+        ? ` + ₹${res.firstDepositBonusInr.toFixed(2)} New-User Bonus`
+        : '';
     if (res.targetEmail === state.profile.email.trim().toLowerCase()) {
       pushNotification('deposit_ok', {
         title: 'Deposit Verified & Credited',
-        msg: `₹${res.creditedAmount.toFixed(2)} added to your wallet.`,
+        msg: `₹${res.creditedAmount.toFixed(2)}${bonusText} added to your wallet.`,
         route: 'wallet',
       });
     }
     showToast(
-      `Credited ₹${res.creditedAmount.toFixed(2)} to ${res.targetEmail || 'user'}`,
+      `Credited ₹${res.creditedAmount.toFixed(2)}${bonusText} to ${res.targetEmail || 'user'}`,
       'success'
     );
   };
@@ -1792,11 +1831,11 @@ export default function App() {
 
   const activeFeaturedAsset = state.assets[0];
 
-  // Show Authentication view when not signed in
+  // Show full-screen Authentication gate ONLY if guest browsing is disabled by Owner Admin
   const activeSettings = getEffectivePlatformSettings(state);
   const activeRefCfg = getEffectiveReferralConfig(state);
 
-  if (!state.isAuthenticated) {
+  if (!state.isAuthenticated && activeSettings.guestBrowsingEnabled === false) {
     return (
       <>
         <AuthView
@@ -1804,10 +1843,11 @@ export default function App() {
           themeMode={themeMode}
           signupsPaused={activeSettings.signupsPaused}
           maintenanceNotice={activeSettings.maintenanceNotice}
+          onOpenTerms={() => setTermsOpen(true)}
           onLogin={handleLogin}
           onSignup={handleSignup}
-          onResetPassword={handleResetPassword}
         />
+        <TermsModal open={termsOpen} onClose={() => setTermsOpen(false)} />
         {toast && (
           <div
             role="status"
@@ -1850,22 +1890,45 @@ export default function App() {
           <nav aria-label="Primary navigation" className="space-y-1">
             {desktopNavItems.map((item) => {
               const active = activeNav === item.id;
+              const isFeedItem = item.id === 'feed';
               return (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => {
+                    if (
+                      !state.isAuthenticated &&
+                      (item.id === 'portfolio' ||
+                        item.id === 'gift' ||
+                        item.id === 'profile' ||
+                        item.id === 'admin')
+                    ) {
+                      requireAuth('Sign in to access your account & portfolio.');
+                      return;
+                    }
                     if (item.id === 'games') setSelectedGameId(null);
-                    setActiveNav(item.id);
+                    if (isFeedItem) {
+                      openNewsFeed();
+                    } else {
+                      setActiveNav(item.id);
+                    }
                   }}
-                  className={`w-full min-h-[44px] px-3.5 rounded-xl flex items-center gap-3 text-sm font-semibold transition-colors ${
+                  className={`w-full min-h-[44px] px-3.5 rounded-xl flex items-center justify-between text-sm font-semibold transition-colors ${
                     active
                       ? 'bg-[#7c3aed]/20 text-[#a78bfa]'
                       : 'text-[#94a3b8] hover:text-white hover:bg-white/[0.04]'
                   }`}
                 >
-                  {item.icon}
-                  <span>{item.label}</span>
+                  <span className="flex items-center gap-3">
+                    {item.icon}
+                    <span>{item.label}</span>
+                  </span>
+                  {isFeedItem && hasUnreadNews && (
+                    <span
+                      aria-label="Unread community updates"
+                      className="w-2 h-2 rounded-full bg-[#ef4444] animate-pulse shrink-0"
+                    />
+                  )}
                 </button>
               );
             })}
@@ -1875,22 +1938,36 @@ export default function App() {
         <div className="space-y-3 pt-4 border-t border-white/[0.06]">
           <div className="px-2">
             <div className="text-xs text-[#94a3b8]">
-              {t(lang, 'availableWallet')}
+              {state.isAuthenticated ? t(lang, 'availableWallet') : 'Guest Browsing'}
             </div>
             <div className="text-lg font-extrabold text-white font-mono-nums mt-0.5">
-              {formatCurrency(state.balance, currency, fxRates)}
+              {state.isAuthenticated
+                ? formatCurrency(state.balance, currency, fxRates)
+                : 'Sign In Ready'}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() =>
-              setTradeModalState({ asset: activeFeaturedAsset, side: 'long' })
-            }
-            className="preserve-white w-full min-h-[44px] rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] text-white text-sm font-bold flex items-center justify-center gap-1.5 transition-colors shadow-[0_4px_14px_rgba(124,58,237,0.35)]"
-          >
-            <Plus className="w-4 h-4" />
-            {t(lang, 'quickTrade')}
-          </button>
+          {state.isAuthenticated ? (
+            <button
+              type="button"
+              onClick={() =>
+                setTradeModalState({ asset: activeFeaturedAsset, side: 'long' })
+              }
+              className="preserve-white w-full min-h-[44px] rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] text-white text-sm font-bold flex items-center justify-center gap-1.5 transition-colors shadow-[0_4px_14px_rgba(124,58,237,0.35)]"
+            >
+              <Plus className="w-4 h-4" />
+              {t(lang, 'quickTrade')}
+            </button>
+          ) : (
+            <button
+              type="button"
+              id="sidebar-guest-signin-btn"
+              onClick={() => setShowAuthModal(true)}
+              className="preserve-white w-full min-h-[44px] rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] text-white text-sm font-bold flex items-center justify-center gap-1.5 transition-colors"
+            >
+              <User className="w-4 h-4" />
+              <span>Sign In / Register</span>
+            </button>
+          )}
         </div>
       </aside>
 
@@ -1914,16 +1991,25 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setActiveNav('feed')}
-              className={`hover:text-white transition-colors whitespace-nowrap ${
+              onClick={openNewsFeed}
+              className={`relative inline-flex items-center gap-1.5 hover:text-white transition-colors whitespace-nowrap ${
                 activeNav === 'feed' ? 'text-white font-semibold' : ''
               }`}
             >
-              {t(lang, 'navNews')}
+              <span>{t(lang, 'navNews')}</span>
+              {hasUnreadNews && (
+                <span
+                  aria-label="Unread community updates"
+                  className="w-2 h-2 rounded-full bg-[#ef4444] animate-pulse shrink-0"
+                />
+              )}
             </button>
             <button
               type="button"
-              onClick={() => setActiveNav('gift')}
+              onClick={() => {
+                if (!requireAuth('Sign in to claim Gift Drops.')) return;
+                setActiveNav('gift');
+              }}
               className={`hover:text-white transition-colors whitespace-nowrap ${
                 activeNav === 'gift' ? 'text-white font-semibold' : ''
               }`}
@@ -1933,30 +2019,44 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0">
-            {activeNav !== 'markets' && (
+            {state.isAuthenticated ? (
+              <>
+                {activeNav !== 'markets' && (
+                  <button
+                    type="button"
+                    onClick={() => setNotifOpen(true)}
+                    aria-label={`Notifications (${unreadCount} unread)`}
+                    className="relative w-[38px] h-[38px] rounded-xl bg-[#15101f] hover:bg-[#1c1529] border border-white/10 flex items-center justify-center text-white transition-colors"
+                  >
+                    <Bell className="w-4 h-4" />
+                    {unreadCount > 0 && (
+                      <span className="preserve-white absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-[#ef4444] text-white text-[9px] font-bold flex items-center justify-center border-2 border-[#0b0814] font-mono-nums">
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </span>
+                    )}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setWalletModalMode('topup')}
+                  aria-label="Wallet balance and top up"
+                  className="min-h-[38px] px-3.5 rounded-xl bg-[#15101f] hover:bg-[#1c1529] border border-white/10 text-xs font-bold text-white font-mono-nums inline-flex items-center gap-2 whitespace-nowrap shrink-0 transition-colors"
+                >
+                  <Wallet className="w-3.5 h-3.5 text-[#a78bfa]" />
+                  <span>{formatCurrency(state.balance, currency, fxRates)}</span>
+                </button>
+              </>
+            ) : (
               <button
                 type="button"
-                onClick={() => setNotifOpen(true)}
-                aria-label={`Notifications (${unreadCount} unread)`}
-                className="relative w-[38px] h-[38px] rounded-xl bg-[#15101f] hover:bg-[#1c1529] border border-white/10 flex items-center justify-center text-white transition-colors"
+                id="desktop-header-signin-btn"
+                onClick={() => setShowAuthModal(true)}
+                className="preserve-white min-h-[38px] px-4 rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] text-white text-xs font-extrabold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
               >
-                <Bell className="w-4 h-4" />
-                {unreadCount > 0 && (
-                  <span className="preserve-white absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-[#ef4444] text-white text-[9px] font-bold flex items-center justify-center border-2 border-[#0b0814] font-mono-nums">
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </span>
-                )}
+                <User className="w-3.5 h-3.5" />
+                <span>Sign In</span>
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setWalletModalMode('topup')}
-              aria-label="Wallet balance and top up"
-              className="min-h-[38px] px-3.5 rounded-xl bg-[#15101f] hover:bg-[#1c1529] border border-white/10 text-xs font-bold text-white font-mono-nums inline-flex items-center gap-2 whitespace-nowrap shrink-0 transition-colors"
-            >
-              <Wallet className="w-3.5 h-3.5 text-[#a78bfa]" />
-              <span>{formatCurrency(state.balance, currency, fxRates)}</span>
-            </button>
           </div>
         </header>
 
@@ -1966,15 +2066,23 @@ export default function App() {
             <MarketsView
               state={state}
               unreadNotifications={unreadCount}
-              onOpenNotifications={() => setNotifOpen(true)}
-              onOpenTrade={(asset, side = 'long') =>
-                setTradeModalState({ asset, side })
-              }
+              hasUnreadNews={hasUnreadNews}
+              onOpenNotifications={() => {
+                if (!requireAuth('Sign in to view notifications.')) return;
+                setNotifOpen(true);
+              }}
+              onOpenAuth={() => setShowAuthModal(true)}
+              onClaimDailyCheckIn={handleClaimDailyCheckIn}
+              onOpenTrade={(asset, side = 'long') => {
+                if (!requireAuth('Sign in to place live trades.')) return;
+                setTradeModalState({ asset, side });
+              }}
               onOpenTradeTerminal={(assetId) => {
                 setTerminalAssetId(assetId ?? null);
                 setActiveNav('trade');
               }}
               onOpenGame={(gameId) => {
+                if (!requireAuth('Sign in to play interactive games.')) return;
                 setGamesReturnNav('markets');
                 setSelectedGameId(gameId);
                 setActiveNav('games');
@@ -1985,15 +2093,23 @@ export default function App() {
                 setActiveNav('games');
               }}
               onOpenAllBets={() => setActiveNav('bets')}
-              onOpenPrediction={(market, choice) =>
-                setPredictionModalState({ market, choice })
-              }
+              onOpenPrediction={(market, choice) => {
+                if (!requireAuth('Sign in to place prediction bets.')) return;
+                setPredictionModalState({ market, choice });
+              }}
               onOpenWalletModal={(mode) => {
+                if (!requireAuth('Sign in to access deposits, withdrawals & support.')) {
+                  return;
+                }
                 setSupportPreselectedTxId(null);
                 setWalletModalMode(mode);
               }}
-              onNavigateNews={() => setActiveNav('feed')}
-              onNavigateGift={() => setActiveNav('gift')}
+              onNavigateNews={openNewsFeed}
+              onNavigateGift={() => {
+                if (!requireAuth('Sign in to claim Gift Drops.')) return;
+                setActiveNav('gift');
+              }}
+              onOpenTerms={() => setTermsOpen(true)}
             />
           )}
 
@@ -2005,6 +2121,9 @@ export default function App() {
                 currency={currency}
                 fxRates={fxRates}
                 onSelectGame={(gameId) => {
+                  if (gameId !== null && !requireAuth('Sign in to launch and play games.')) {
+                    return;
+                  }
                   if (gameId && selectedGameId === null) {
                     setGamesReturnNav('games');
                   }
@@ -2021,6 +2140,7 @@ export default function App() {
                   }
                 }}
                 onOpenTopUp={() => {
+                  if (!requireAuth('Sign in to deposit funds.')) return;
                   setSupportPreselectedTxId(null);
                   setWalletModalMode('topup');
                 }}
@@ -2039,8 +2159,14 @@ export default function App() {
                   setTerminalAssetId(null);
                   setActiveNav('markets');
                 }}
-                onExecuteTrade={handleConfirmTrade}
-                onClosePosition={handleClosePosition}
+                onExecuteTrade={(params) => {
+                  if (!requireAuth('Sign in to submit live orders.')) return;
+                  handleConfirmTrade(params);
+                }}
+                onClosePosition={(positionId) => {
+                  if (!requireAuth('Sign in to manage open positions.')) return;
+                  handleClosePosition(positionId);
+                }}
               />
             </div>
           )}
@@ -2050,10 +2176,10 @@ export default function App() {
               <AllBetsView
                 state={state}
                 onBack={() => setActiveNav('markets')}
-                onOpenPrediction={(market, choice) =>
-                  setPredictionModalState({ market, choice })
-                }
-                onSettleBet={handleSettleBet}
+                onOpenPrediction={(market, choice) => {
+                  if (!requireAuth('Sign in to place prediction bets.')) return;
+                  setPredictionModalState({ market, choice });
+                }}
               />
             </div>
           )}
@@ -2064,7 +2190,6 @@ export default function App() {
                 state={state}
                 nowMs={nowMs}
                 onClosePosition={handleClosePosition}
-                onSettleBet={handleSettleBet}
                 onExploreMarkets={() => setActiveNav('trade')}
                 onDeposit={() => setWalletModalMode('topup')}
                 onWithdraw={() => setWalletModalMode('withdraw')}
@@ -2086,14 +2211,24 @@ export default function App() {
             <div className="pt-4 lg:pt-0">
               <FeedView
                 state={state}
+                hasUnreadCommunity={hasUnreadNews}
+                onOpenCommunity={() => setHasUnreadNews(false)}
                 onBack={() => setActiveNav('markets')}
                 onTradeAsset={(asset) => {
                   setTerminalAssetId(asset.id);
                   setActiveNav('trade');
                 }}
                 onViewAllBets={() => setActiveNav('bets')}
-                onAddComment={handleAddComment}
-                onSendCommunityMessage={handleSendCommunityMessage}
+                onAddComment={(newsId, text) => {
+                  if (!requireAuth('Sign in to post market comments.')) return;
+                  handleAddComment(newsId, text);
+                }}
+                onSendCommunityMessage={(text) => {
+                  if (!requireAuth('Sign in to chat in the community.')) {
+                    return { ok: false, error: 'Sign in required.' };
+                  }
+                  return handleSendCommunityMessage(text);
+                }}
               />
             </div>
           )}
@@ -2168,6 +2303,7 @@ export default function App() {
                     'info'
                   );
                 }}
+                onChangePassword={handleChangePassword}
                 onNotify={showToast}
                 onLogout={handleLogout}
               />
@@ -2198,6 +2334,8 @@ export default function App() {
                 onUpdateAssetPrice={handleUpdateAssetPrice}
                 onAddGiftCode={handleAddGiftCode}
                 onToggleGiftCode={handleToggleGiftCode}
+                onCreatePredictionMarket={handleCreatePredictionMarket}
+                onResolvePredictionMarket={handleResolvePredictionMarket}
               />
             </div>
           )}
@@ -2222,7 +2360,10 @@ export default function App() {
 
         <button
           type="button"
-          onClick={() => setActiveNav('portfolio')}
+          onClick={() => {
+            if (!requireAuth('Sign in to view your portfolio & orders.')) return;
+            setActiveNav('portfolio');
+          }}
           className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors ${
             activeNav === 'portfolio' ? 'text-[#a78bfa]' : 'text-[#94a3b8]'
           }`}
@@ -2233,7 +2374,10 @@ export default function App() {
 
         <button
           type="button"
-          onClick={() => setActiveNav('gift')}
+          onClick={() => {
+            if (!requireAuth('Sign in to claim Gift Drops.')) return;
+            setActiveNav('gift');
+          }}
           className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors ${
             activeNav === 'gift' ? 'text-[#a78bfa]' : 'text-[#94a3b8]'
           }`}
@@ -2255,7 +2399,10 @@ export default function App() {
 
         <button
           type="button"
-          onClick={() => setActiveNav('profile')}
+          onClick={() => {
+            if (!requireAuth('Sign in to access your profile & leaderboard.')) return;
+            setActiveNav('profile');
+          }}
           className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors ${
             activeNav === 'profile' ? 'text-[#a78bfa]' : 'text-[#94a3b8]'
           }`}
@@ -2419,6 +2566,7 @@ export default function App() {
         themeMode={themeMode}
         merchantUpiPool={state.merchantUpiPool}
         platformSettings={activeSettings}
+        isFirstDeposit={!hasVerifiedDeposit(state)}
         minDepositInr={activeRefCfg.minDepositInr}
         minWithdrawInr={activeRefCfg.minWithdrawInr}
         onClose={() => {
@@ -2440,12 +2588,40 @@ export default function App() {
         onComplete={() => setActiveTransfer(null)}
       />
 
+      {/* Sign In / Registration Modal for Guests */}
+      {showAuthModal && !state.isAuthenticated && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Sign in or create account"
+          className="fixed inset-0 z-[70] bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowAuthModal(false);
+          }}
+        >
+          <div className="w-full max-w-md">
+            <AuthView
+              platformFeePct={activeRefCfg.platformFeePct}
+              themeMode={themeMode}
+              signupsPaused={activeSettings.signupsPaused}
+              maintenanceNotice={activeSettings.maintenanceNotice}
+              onOpenTerms={() => setTermsOpen(true)}
+              onLogin={handleLogin}
+              onSignup={handleSignup}
+              onClose={() => setShowAuthModal(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      <TermsModal open={termsOpen} onClose={() => setTermsOpen(false)} />
+
       {/* Toast Notification */}
       {toast && (
         <div
           role="status"
           aria-live="polite"
-          className={`hero-preserve-dark fixed top-5 left-1/2 -translate-x-1/2 lg:left-auto lg:translate-x-0 lg:top-16 lg:right-8 z-[60] px-4 py-2.5 rounded-xl border text-xs font-semibold shadow-xl backdrop-blur-md whitespace-nowrap ${
+          className={`hero-preserve-dark fixed top-5 left-1/2 -translate-x-1/2 lg:left-auto lg:translate-x-0 lg:top-16 lg:right-8 z-[80] px-4 py-2.5 rounded-xl border text-xs font-semibold shadow-xl backdrop-blur-md whitespace-nowrap ${
             toast.tone === 'success'
               ? 'bg-emerald-950/90 border-emerald-500/40 text-emerald-200'
               : toast.tone === 'error'
