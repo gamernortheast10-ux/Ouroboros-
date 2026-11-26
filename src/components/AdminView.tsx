@@ -452,10 +452,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
           ownerEmail: state.profile.email,
         }),
       });
-      const data = await resp.json();
+      const contentType = resp.headers.get('content-type') || '';
+      const data = contentType.includes('application/json')
+        ? await resp.json()
+        : null;
       const draft = data?.draft ?? data;
       if (!resp.ok || !draft?.question) {
-        setVoiceError(data?.error || 'Could not parse voice command.');
+        setVoiceError(
+          data?.error ||
+            (!contentType.includes('application/json')
+              ? 'Backend AI endpoint is unavailable on static hosting.'
+              : 'Could not parse voice command.')
+        );
         return;
       }
       setDraftQuestion(String(draft.question || ''));
@@ -516,12 +524,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
           },
         }),
       });
-      const data = await resp.json();
-      if (!resp.ok) {
+      const contentType = resp.headers.get('content-type') || '';
+      const data = contentType.includes('application/json')
+        ? await resp.json()
+        : null;
+      if (!resp.ok || !data) {
         setResolveFeedback({
           marketId,
           status: 'error',
-          summary: data?.error || 'Live web verification failed.',
+          summary:
+            data?.error ||
+            (!contentType.includes('application/json')
+              ? 'Live web verification API is unavailable on static hosting.'
+              : 'Live web verification failed.'),
         });
         return;
       }
