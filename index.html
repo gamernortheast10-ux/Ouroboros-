@@ -10,6 +10,26 @@
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" type="image/png" href="./assets/ouroboros-emblem.png" />
+    <script>
+      (function () {
+        var p = window.location.pathname;
+        if (p && !/\/$/.test(p) && !/\.[a-z0-9]+$/i.test(p)) {
+          window.location.replace(p + '/' + window.location.search + window.location.hash);
+        }
+        window.addEventListener('error', function (ev) {
+          var root = document.getElementById('root');
+          if (root && root.childElementCount === 0 && ev && ev.message) {
+            root.innerHTML =
+              '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#09090f;color:#f4f4f8;font-family:sans-serif;">' +
+              '<div style="max-width:480px;width:100%;background:#12121d;border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:24px;">' +
+              '<h1 style="margin:0 0 8px;font-size:18px;">Failed to load Ouroboros</h1>' +
+              '<p style="margin:0 0 12px;font-size:13px;color:#cbd5e1;">' + String(ev.message).replace(/</g, '&lt;') + '</p>' +
+              '<button onclick="window.location.reload()" style="padding:10px 16px;border:0;border-radius:10px;background:#7c5cfc;color:#fff;font-weight:600;cursor:pointer;">Reload</button>' +
+              '</div></div>';
+          }
+        });
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
