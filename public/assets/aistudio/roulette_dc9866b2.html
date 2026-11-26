@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Roulette</title>
-<script src="./ouro-wallet-bridge.js"></script>
+<script src="./ouro-wallet-bridge.js?v=8"></script>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0a0e14;--panel:#121820;--panel2:#1a222e;--border:rgba(255,255,255,0.07);--gold:#f0c14b;--green:#22c55e;--red:#ef4444;--text:#e8edf5;--muted:#7d8a9e}
@@ -100,10 +100,10 @@ let balance=window.OuroBridge?window.OuroBridge.getBalance():0,soundOn=true,spin
 
 function ensureAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext);if(audioCtx.state==='suspended')audioCtx.resume()}
 function tone(f,d,t='sine',v=0.08,w=0){if(!soundOn)return;ensureAudio();const t0=audioCtx.currentTime+w;const o=audioCtx.createOscillator();const g=audioCtx.createGain();o.type=t;o.frequency.setValueAtTime(f,t0);g.gain.setValueAtTime(0.0001,t0);g.gain.exponentialRampToValueAtTime(v,t0+0.015);g.gain.exponentialRampToValueAtTime(0.0001,t0+d);o.connect(g);g.connect(audioCtx.destination);o.start(t0);o.stop(t0+d+0.02)}
-function playSpin(){for(let i=0;i<18;i++)tone(180+i*12,0.05,'square',0.02,i*0.09)}
-function playWin(){[523,659,784,1046].forEach((f,i)=>tone(f,0.14,'sine',0.08,i*0.07))}
-function playLose(){tone(160,0.12,'triangle',0.05);tone(110,0.18,'triangle',0.04,0.1)}
-function toggleSound(){soundOn=!soundOn;document.getElementById('soundBtn').textContent=soundOn?'🔊':'🔇';if(soundOn)tone(600,0.07)}
+function playSpin(){if(window.OuroBridge&&window.OuroBridge.fx){for(let i=0;i<14;i++)setTimeout(()=>window.OuroBridge.fx.play('step',{pitchStep:i}),i*210);return;}for(let i=0;i<18;i++)tone(180+i*12,0.05,'square',0.02,i*0.09)}
+function playWin(){if(window.OuroBridge&&window.OuroBridge.fx)return;[523,659,784,1046].forEach((f,i)=>tone(f,0.14,'sine',0.08,i*0.07))}
+function playLose(cost,resLabel){if(window.OuroBridge&&typeof window.OuroBridge.loss==='function'){window.OuroBridge.loss(cost,'Landed '+resLabel);return;}tone(160,0.12,'triangle',0.05);tone(110,0.18,'triangle',0.04,0.1)}
+function toggleSound(){soundOn=!soundOn;if(window.OuroBridge&&window.OuroBridge.setMuted)window.OuroBridge.setMuted(!soundOn);document.getElementById('soundBtn').textContent=soundOn?'🔊':'🔇';if(soundOn&&window.OuroBridge&&window.OuroBridge.fx)window.OuroBridge.fx.play('bet');else if(soundOn)tone(600,0.07)}
 function fmt(n){return n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
 function updateBal(){document.getElementById('balance').textContent='₹'+fmt(balance)}
 function showToast(msg,type){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(type?' '+type:'');setTimeout(()=>t.classList.remove('show'),2200)}
@@ -215,7 +215,7 @@ function spin(){
       updateBal();playWin();
       showToast('Win +₹'+fmt(win-cost),'win');
     } else {
-      playLose();showToast('No win · -₹'+fmt(cost),'lose');
+      playLose(cost,result+' · '+col.toUpperCase());showToast('No win · -₹'+fmt(cost),'lose');
     }
     spinning=false;
     document.getElementById('btnSpin').disabled=false;

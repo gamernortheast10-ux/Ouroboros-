@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Trade Live · 24×7</title>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
-<script src="./ouro-wallet-bridge.js"></script>
+<script src="./ouro-wallet-bridge.js?v=8"></script>
 <style>
 :root {
   --bg: #0b0e14; --panel: #12161f; --panel2: #1a1f2e;
@@ -1270,6 +1270,8 @@ function checkPositions() {
         } else {
           state.balance += credit;
         }
+      } else if (!isTie && window.OuroBridge && typeof window.OuroBridge.loss === 'function') {
+        window.OuroBridge.loss(p.amount, `${p.pair} ${p.dir.toUpperCase()} CLOSED`);
       }
       p.exit = exit;
       p.pnl = isTie ? 0 : (win ? (credit - p.amount) : -p.amount);

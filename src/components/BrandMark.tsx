@@ -1,4 +1,4 @@
-import React, { useId } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { MarketAsset } from '../types/trading';
 import { getAssetUrl } from '../utils/assetPath';
 
@@ -13,12 +13,61 @@ export const OuroborosLogo: React.FC<{ className?: string }> = ({ className = 'w
   );
 };
 
-export const AssetBadge: React.FC<{ asset: Pick<MarketAsset, 'id' | 'symbol' | 'brandColor' | 'brandText' | 'brandGlyph'>; size?: 'sm' | 'md' | 'lg' }> = ({
-  asset,
-  size = 'md',
-}) => {
+export const AssetBadge: React.FC<{
+  asset: Pick<
+    MarketAsset,
+    'id' | 'symbol' | 'brandColor' | 'brandText' | 'brandGlyph' | 'logoUrl' | 'fallbackLogoUrl' | 'logoBg'
+  >;
+  size?: 'sm' | 'md' | 'lg';
+}> = ({ asset, size = 'md' }) => {
+  const [srcStage, setSrcStage] = useState<'primary' | 'fallback' | 'glyph'>(
+    asset.logoUrl ? 'primary' : 'glyph'
+  );
+
+  useEffect(() => {
+    setSrcStage(asset.logoUrl ? 'primary' : 'glyph');
+  }, [asset.id, asset.logoUrl]);
+
   const sizeClass =
-    size === 'lg' ? 'w-12 h-12 text-sm rounded-2xl' : size === 'sm' ? 'w-9 h-9 text-xs rounded-xl' : 'w-11 h-11 text-xs rounded-xl';
+    size === 'lg'
+      ? 'w-12 h-12 text-sm rounded-2xl'
+      : size === 'sm'
+      ? 'w-9 h-9 text-xs rounded-xl'
+      : 'w-11 h-11 text-xs rounded-xl';
+
+  const padClass = size === 'lg' ? 'p-2' : size === 'sm' ? 'p-1.5' : 'p-1.5';
+
+  const rawUrl =
+    srcStage === 'primary'
+      ? asset.logoUrl
+      : srcStage === 'fallback'
+      ? asset.fallbackLogoUrl
+      : undefined;
+  const activeUrl = rawUrl ? getAssetUrl(rawUrl) : undefined;
+
+  if (activeUrl) {
+    return (
+      <div
+        className={`${sizeClass} ${padClass} flex items-center justify-center shrink-0 overflow-hidden border border-white/15 shadow-sm`}
+        style={{ backgroundColor: asset.logoBg || '#ffffff' }}
+      >
+        <img
+          src={activeUrl}
+          alt={`${asset.symbol} logo`}
+          referrerPolicy="no-referrer"
+          draggable={false}
+          onError={() => {
+            if (srcStage === 'primary' && asset.fallbackLogoUrl) {
+              setSrcStage('fallback');
+            } else {
+              setSrcStage('glyph');
+            }
+          }}
+          className="w-full h-full object-contain select-none"
+        />
+      </div>
+    );
+  }
 
   if (asset.id === 'apple') {
     return (

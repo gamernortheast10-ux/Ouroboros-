@@ -9,6 +9,7 @@ import {
   Home,
   Newspaper,
   Plus,
+  ScanLine,
   Trophy,
   User,
   Wallet,
@@ -38,10 +39,15 @@ import {
   WalletModalMode,
 } from './components/WalletModal';
 import {
+  WalletScannerModal,
+  WalletScannerTab,
+} from './components/WalletScannerModal';
+import {
   DEFAULT_MERCHANT_UPIS,
   DEFAULT_PLATFORM_SETTINGS,
   DEFAULT_REFERRAL_CONFIG,
   INITIAL_APP_STATE,
+  INITIAL_ASSETS,
   INITIAL_COMMUNITY_MESSAGES,
 } from './data/seedData';
 import { AppNotification, NotificationTemplateKey } from './types/notifications';
@@ -108,6 +114,7 @@ import {
   settlePredictionMarketByOutcome,
   tickFxRates,
   tickMarketPrices,
+  transferWalletByProfileId,
   validateAndResolveReferralCode,
 } from './utils/tradingEngine';
 import { getAssetUrl } from './utils/assetPath';
@@ -195,9 +202,31 @@ function loadInitialState(): AppState {
       ? normalizedAccounts.find((a) => a.email.trim().toLowerCase() === storedEmail)
       : undefined;
 
+    const parsedAssets = Array.isArray(parsed.assets) ? parsed.assets : [];
+    const hydratedAssets = INITIAL_ASSETS.map((seedAsset) => {
+      const saved = parsedAssets.find((a) => a.id === seedAsset.id);
+      return saved
+        ? {
+            ...saved,
+            brandColor: seedAsset.brandColor,
+            brandText: seedAsset.brandText,
+            brandGlyph: seedAsset.brandGlyph,
+            logoUrl: seedAsset.logoUrl,
+            fallbackLogoUrl: seedAsset.fallbackLogoUrl,
+            logoBg: seedAsset.logoBg,
+          }
+        : seedAsset;
+    });
+    for (const extra of parsedAssets) {
+      if (!hydratedAssets.some((a) => a.id === extra.id)) {
+        hydratedAssets.push(extra);
+      }
+    }
+
     return {
       ...INITIAL_APP_STATE,
       ...parsed,
+      assets: hydratedAssets,
       withdrawableBalance:
         typeof parsed.withdrawableBalance === 'number'
           ? Math.min(parsed.balance, Math.max(0, parsed.withdrawableBalance))
@@ -318,6 +347,8 @@ export default function App() {
     choice: 'yes' | 'no';
   } | null>(null);
   const [walletModalMode, setWalletModalMode] = useState<WalletModalMode>(null);
+  const [scannerModalTab, setScannerModalTab] =
+    useState<WalletScannerTab | null>(null);
   const [supportPreselectedTxId, setSupportPreselectedTxId] = useState<
     string | null
   >(null);
@@ -345,6 +376,13 @@ export default function App() {
     setShowAuthModal(true);
     showToast(message, 'info');
     return false;
+  };
+
+  const openScanner = (tab: WalletScannerTab = 'scan') => {
+    if (!requireAuth('Sign in to scan QR codes and send wallet money.')) {
+      return;
+    }
+    setScannerModalTab(tab);
   };
 
   const openNewsFeed = () => {
@@ -1212,6 +1250,34 @@ export default function App() {
     return { ok: true };
   };
 
+  const handleWalletTransfer = (params: {
+    recipientUid: string;
+    amountInr: number;
+    note?: string;
+    via: 'qr' | 'id';
+  }) => {
+    const res = transferWalletByProfileId(state, params);
+    if (!res.ok) {
+      return { ok: false, error: res.error };
+    }
+    setState(res.nextState);
+    pushNotification('system', {
+      title: 'Wallet Transfer Sent',
+      msg: `Sent ₹${res.amountInr.toFixed(2)} to ${res.recipient.name} (${res.recipient.uid}).`,
+      route: 'portfolio',
+    });
+    showToast(
+      `Sent ₹${res.amountInr.toFixed(2)} to ${res.recipient.name}`,
+      'success'
+    );
+    return {
+      ok: true,
+      recipient: res.recipient,
+      amountInr: res.amountInr,
+      txId: res.txId,
+    };
+  };
+
   const handleBindBank = (bank: Omit<BankAccount, 'id'>) => {
     setState((prev) => ({
       ...prev,
@@ -2038,6 +2104,15 @@ export default function App() {
                 )}
                 <button
                   type="button"
+                  onClick={() => openScanner('scan')}
+                  aria-label="Scan QR and send money"
+                  className="min-h-[38px] px-3 rounded-xl bg-[#15101f] hover:bg-[#1c1529] border border-white/10 text-xs font-bold text-white inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                >
+                  <ScanLine className="w-3.5 h-3.5 text-[#a78bfa]" />
+                  <span>Scan &amp; Pay</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setWalletModalMode('topup')}
                   aria-label="Wallet balance and top up"
                   className="min-h-[38px] px-3.5 rounded-xl bg-[#15101f] hover:bg-[#1c1529] border border-white/10 text-xs font-bold text-white font-mono-nums inline-flex items-center gap-2 whitespace-nowrap shrink-0 transition-colors"
@@ -2104,6 +2179,7 @@ export default function App() {
                 setSupportPreselectedTxId(null);
                 setWalletModalMode(mode);
               }}
+              onOpenScanner={(tab = 'scan') => openScanner(tab)}
               onNavigateNews={openNewsFeed}
               onNavigateGift={() => {
                 if (!requireAuth('Sign in to claim Gift Drops.')) return;
@@ -2117,6 +2193,7 @@ export default function App() {
             <div className="pt-4 lg:pt-0">
               <GamesView
                 selectedGameId={selectedGameId}
+                isAuthenticated={Boolean(state.isAuthenticated)}
                 balance={state.balance}
                 currency={currency}
                 fxRates={fxRates}
@@ -2242,6 +2319,7 @@ export default function App() {
                   setSupportPreselectedTxId(null);
                   setWalletModalMode(mode);
                 }}
+                onOpenScanner={(tab = 'scan') => openScanner(tab)}
                 onNavigatePortfolio={() => setActiveNav('portfolio')}
                 onNavigateGift={() => setActiveNav('gift')}
                 onNavigateAdmin={
@@ -2579,6 +2657,17 @@ export default function App() {
         onBindUpi={handleBindUpi}
         onSellUsdt={handleSellUsdt}
         onSupportSubmit={handleSupportSubmit}
+      />
+
+      <WalletScannerModal
+        open={scannerModalTab !== null}
+        initialTab={scannerModalTab ?? 'scan'}
+        state={state}
+        currency={currency}
+        fxRates={fxRates}
+        themeMode={themeMode}
+        onClose={() => setScannerModalTab(null)}
+        onTransfer={handleWalletTransfer}
       />
 
       <PaymentTransferAnimation

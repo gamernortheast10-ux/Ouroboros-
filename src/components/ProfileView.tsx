@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import QRCode from 'qrcode';
 import {
   ArrowDownToLine,
   ArrowLeft,
@@ -23,8 +24,10 @@ import {
   MessageCircle,
   Moon,
   Plus,
+  QrCode,
   ReceiptText,
   RefreshCw,
+  ScanLine,
   Shield,
   ShieldCheck,
   Smartphone,
@@ -45,6 +48,7 @@ import { LANGUAGES, t } from '../utils/i18n';
 import {
   PLAYER_LEVELS,
   SUPPORTED_CURRENCIES,
+  buildWalletQrPayload,
   calculatePlayerLevel,
   calculateTotalSpent,
   convertCurrency,
@@ -54,6 +58,7 @@ import {
   isOwnerAdmin,
 } from '../utils/tradingEngine';
 import { WalletModalMode } from './WalletModal';
+import { WalletScannerTab } from './WalletScannerModal';
 import { UpiAppLogo } from './UpiAppBranding';
 import {
   LeaderboardPodiumIcon,
@@ -64,6 +69,7 @@ interface ProfileViewProps {
   state: AppState;
   onBack: () => void;
   onOpenWalletModal: (mode: WalletModalMode) => void;
+  onOpenScanner?: (tab?: WalletScannerTab) => void;
   onNavigatePortfolio: () => void;
   onNavigateGift: () => void;
   onNavigateAdmin?: () => void;
@@ -89,6 +95,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   state,
   onBack,
   onOpenWalletModal,
+  onOpenScanner,
   onNavigatePortfolio,
   onNavigateGift,
   onNavigateAdmin,
@@ -116,6 +123,31 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [confirmPwd, setConfirmPwd] = useState('');
   const [pwdError, setPwdError] = useState('');
   const [pwdSuccess, setPwdSuccess] = useState('');
+  const [digitalIdQrUrl, setDigitalIdQrUrl] = useState('');
+
+  useEffect(() => {
+    if (activeSheet !== 'trader_id') return;
+    let cancelled = false;
+    const payload = buildWalletQrPayload({
+      uid: state.profile.uid,
+      name: state.profile.name,
+    });
+    QRCode.toDataURL(payload, {
+      width: 210,
+      margin: 1,
+      color: { dark: '#141124', light: '#ffffff' },
+      errorCorrectionLevel: 'M',
+    })
+      .then((url) => {
+        if (!cancelled) setDigitalIdQrUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setDigitalIdQrUrl('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSheet, state.profile.uid, state.profile.name]);
 
   const themeMode: ThemeMode = state.themeMode ?? 'dark';
   const isLight = themeMode === 'light';
@@ -142,7 +174,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     return state.transactions.filter((tx) => {
       if (txFilter === 'all') return true;
       if (txFilter === 'deposit') {
-        return tx.type === 'deposit' || tx.type === 'sell_usdt' || tx.type === 'gift_redeem';
+        return (
+          tx.type === 'deposit' ||
+          tx.type === 'sell_usdt' ||
+          tx.type === 'gift_redeem' ||
+          tx.type === 'p2p_receive'
+        );
       }
       if (txFilter === 'trade') {
         return (
@@ -155,7 +192,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           tx.type === 'game_refund'
         );
       }
-      return tx.type === 'withdraw';
+      return tx.type === 'withdraw' || tx.type === 'p2p_send';
     });
   }, [state.transactions, txFilter]);
 
@@ -424,6 +461,29 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   </span>
                 </button>
               </div>
+
+              {onOpenScanner && (
+                <div className="grid grid-cols-2 gap-2 sm:gap-2.5 mt-2.5">
+                  <button
+                    type="button"
+                    data-testid="profile-scan-send-btn"
+                    onClick={() => onOpenScanner('scan')}
+                    className={`btn-press min-h-[42px] px-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold whitespace-nowrap ${subtleTile}`}
+                  >
+                    <ScanLine className="w-4 h-4 text-[#a78bfa] shrink-0" />
+                    <span>Scan QR &amp; Send</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="profile-receive-qr-btn"
+                    onClick={() => onOpenScanner('receive')}
+                    className={`btn-press min-h-[42px] px-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold whitespace-nowrap ${subtleTile}`}
+                  >
+                    <QrCode className="w-4 h-4 text-[#a78bfa] shrink-0" />
+                    <span>My Receive QR</span>
+                  </button>
+                </div>
+              )}
             </section>
 
             {/* Simple Trader Level Card */}
@@ -1279,13 +1339,34 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     </div>
                   </div>
 
+                  {/* Scannable Wallet Receive QR with Profile ID Directly Below */}
+                  <div className="flex flex-col items-center pt-2">
+                    <div className="preserve-white bg-white rounded-2xl p-2.5 border border-white/25 shadow-[0_8px_24px_rgba(0,0,0,0.28)]">
+                      {digitalIdQrUrl ? (
+                        <img
+                          src={digitalIdQrUrl}
+                          alt={`Wallet QR code for ${state.profile.uid}`}
+                          data-testid="digital-id-qr-img"
+                          className="w-[152px] h-[152px] rounded-[4px] block"
+                        />
+                      ) : (
+                        <div className="w-[152px] h-[152px] flex items-center justify-center text-xs text-slate-600 font-semibold">
+                          Generating QR…
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-[10px] font-semibold text-purple-100/80 mt-2">
+                      Scan to pay {state.profile.name} directly
+                    </span>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-2.5 pt-3 border-t border-white/15">
                     <button
                       type="button"
                       onClick={() => handleCopy(state.profile.uid, 'UID', 'modal-uid')}
                       className="btn-press p-2.5 rounded-xl bg-black/25 border border-white/10 text-left"
                     >
-                      <div className="text-[10px] uppercase text-purple-200/75">Trader UID</div>
+                      <div className="text-[10px] uppercase text-purple-200/75">Profile ID</div>
                       <div className="text-xs font-mono-nums font-bold text-white flex items-center justify-between mt-0.5">
                         <span className="truncate">{state.profile.uid}</span>
                         <Copy className="w-3 h-3 shrink-0 ml-1" />
@@ -1299,6 +1380,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       </div>
                     </div>
                   </div>
+
+                  {onOpenScanner && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveSheet(null);
+                        onOpenScanner('scan');
+                      }}
+                      className="preserve-white btn-press w-full min-h-[40px] rounded-xl bg-white text-[#4c1d95] hover:bg-purple-50 text-xs font-extrabold inline-flex items-center justify-center gap-1.5"
+                    >
+                      <ScanLine className="w-3.5 h-3.5" />
+                      <span>Open Scanner &amp; Send Money</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}

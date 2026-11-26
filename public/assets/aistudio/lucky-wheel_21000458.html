@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Lucky Wheel</title>
-<script src="./ouro-wallet-bridge.js"></script>
+<script src="./ouro-wallet-bridge.js?v=8"></script>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -102,10 +102,10 @@ let balance=window.OuroBridge?window.OuroBridge.getBalance():0,soundOn=true,spin
 
 function ensureAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext);if(audioCtx.state==='suspended')audioCtx.resume()}
 function tone(f,d,t='sine',v=0.08,w=0){if(!soundOn)return;ensureAudio();const t0=audioCtx.currentTime+w;const o=audioCtx.createOscillator();const g=audioCtx.createGain();o.type=t;o.frequency.setValueAtTime(f,t0);g.gain.setValueAtTime(0.0001,t0);g.gain.exponentialRampToValueAtTime(v,t0+0.015);g.gain.exponentialRampToValueAtTime(0.0001,t0+d);o.connect(g);g.connect(audioCtx.destination);o.start(t0);o.stop(t0+d+0.02)}
-function playSpin(){for(let i=0;i<20;i++)tone(200+i*15,0.05,'square',0.025,i*0.08)}
-function playWin(big){const notes=big?[523,659,784,1046,1318]:[523,659,784];notes.forEach((f,i)=>tone(f,0.15,'sine',0.08,i*0.08))}
-function playLose(){tone(180,0.12,'triangle',0.05);tone(120,0.18,'triangle',0.04,0.1)}
-function toggleSound(){soundOn=!soundOn;document.getElementById('soundBtn').textContent=soundOn?'🔊':'🔇';if(soundOn)tone(600,0.07)}
+function playSpin(){if(window.OuroBridge&&window.OuroBridge.fx){for(let i=0;i<16;i++)setTimeout(()=>window.OuroBridge.fx.play('step',{pitchStep:i}),i*180);return;}for(let i=0;i<20;i++)tone(200+i*15,0.05,'square',0.025,i*0.08)}
+function playWin(big){if(window.OuroBridge&&window.OuroBridge.fx)return;const notes=big?[523,659,784,1046,1318]:[523,659,784];notes.forEach((f,i)=>tone(f,0.15,'sine',0.08,i*0.08))}
+function playLose(amt,lbl){if(window.OuroBridge&&typeof window.OuroBridge.loss==='function'){window.OuroBridge.loss(amt,'Landed on '+lbl);return;}tone(180,0.12,'triangle',0.05);tone(120,0.18,'triangle',0.04,0.1)}
+function toggleSound(){soundOn=!soundOn;if(window.OuroBridge&&window.OuroBridge.setMuted)window.OuroBridge.setMuted(!soundOn);document.getElementById('soundBtn').textContent=soundOn?'🔊':'🔇';if(soundOn&&window.OuroBridge&&window.OuroBridge.fx)window.OuroBridge.fx.play('bet');else if(soundOn)tone(600,0.07)}
 function fmt(n){return n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
 function updateBal(){document.getElementById('balance').textContent='₹'+fmt(balance)}
 function showToast(msg,type){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(type?' '+type:'');setTimeout(()=>t.classList.remove('show'),2200)}
@@ -173,8 +173,9 @@ function spin(){
   setTimeout(()=>{
     const payout=Math.round(amt*seg.mult*100)/100;
     const profit=payout-amt;
+    const isWinSeg=seg.mult>=1;
     if(window.OuroBridge&&payout>0){
-      window.OuroBridge.win(payout,'Lucky Wheel '+seg.label);
+      window.OuroBridge.win(payout,'Lucky Wheel '+seg.label,{silentFx:!isWinSeg,skipVisual:!isWinSeg});
       balance=window.OuroBridge.getBalance();
     } else {
       balance+=payout;
@@ -183,7 +184,7 @@ function spin(){
     document.getElementById('resultText').textContent=seg.label;
     if(seg.mult>=2)playWin(seg.mult>=5);
     else if(seg.mult>=1)playWin(false);
-    else playLose();
+    else playLose(Math.max(0.01,amt-payout),seg.label);
     showToast(seg.label+' · '+(profit>=0?'+':'')+'₹'+fmt(profit),profit>=0?'win':'lose');
     spinning=false;
     document.getElementById('btnSpin').disabled=false;

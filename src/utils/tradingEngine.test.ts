@@ -13,6 +13,7 @@ import {
   applyTopUp,
   applyWithdraw,
   buildTopTradersLeaderboard,
+  buildWalletQrPayload,
   calculatePlayerLevel,
   calculatePoolPercentages,
   calculatePositionPnl,
@@ -28,6 +29,7 @@ import {
   convertCurrency,
   createOwnerPredictionMarket,
   executeTradeOrder,
+  findWalletRecipientByUid,
   formatCurrency,
   generateReferralCode,
   getActiveMerchantUpis,
@@ -37,12 +39,14 @@ import {
   getPrimaryMerchantUpi,
   hasVerifiedDeposit,
   isOwnerAdmin,
+  parseWalletQrOrProfileInput,
   placePredictionBet,
   redeemGiftCode,
   sellUsdtToInr,
   settleExpiredPositions,
   settlePredictionMarketByOutcome,
   tickFxRates,
+  transferWalletByProfileId,
   validateAndResolveReferralCode,
   validateTradeStake,
   validateUpiId,
@@ -1553,6 +1557,154 @@ test('Owner-only prediction creation and live-web outcome settlement credit net 
   });
   assert.equal(repeatSettle.ok, false);
 });
+
+test('buildWalletQrPayload and parseWalletQrOrProfileInput handle QR URIs, JSON, and Profile IDs', () => {
+  const qrText = buildWalletQrPayload({
+    uid: 'uid-9123-aarav',
+    name: 'Aarav Sharma',
+    amountInr: 250,
+  });
+  assert.equal(qrText.startsWith('ouroboros://wallet-pay?'), true);
+
+  const parsedQr = parseWalletQrOrProfileInput(qrText);
+  assert.equal(parsedQr.ok, true);
+  if (parsedQr.ok) {
+    assert.equal(parsedQr.uid, 'UID-9123-AARAV');
+    assert.equal(parsedQr.nameHint, 'Aarav Sharma');
+    assert.equal(parsedQr.amountInr, 250);
+  }
+
+  const parsedJson = parseWalletQrOrProfileInput(
+    JSON.stringify({ uid: 'uid-7721-riyat', name: 'Riya', am: 500 })
+  );
+  assert.equal(parsedJson.ok, true);
+  if (parsedJson.ok) {
+    assert.equal(parsedJson.uid, 'UID-7721-RIYAT');
+    assert.equal(parsedJson.amountInr, 500);
+  }
+
+  const parsedUid = parseWalletQrOrProfileInput('  uid-8412-vikra  ');
+  assert.equal(parsedUid.ok, true);
+  if (parsedUid.ok) {
+    assert.equal(parsedUid.uid, 'UID-8412-VIKRA');
+  }
+
+  const invalid = parseWalletQrOrProfileInput('not-a-valid-id');
+  assert.equal(invalid.ok, false);
+});
+
+test('transferWalletByProfileId credits recipient, debits sender, preserves bonus-lock, and blocks abuse', () => {
+  const baseState: AppState = {
+    ...INITIAL_APP_STATE,
+    isAuthenticated: true,
+    balance: 600,
+    withdrawableBalance: 400, // ₹400 withdrawable, ₹200 play-only bonus
+    transactions: [],
+    platformTransactions: [],
+    profile: {
+      ...INITIAL_APP_STATE.profile,
+      name: 'Sender User',
+      email: 'sender@test.in',
+      uid: 'UID-1001-SEND',
+    },
+    registeredAccounts: [
+      {
+        email: 'sender@test.in',
+        password: 'pw',
+        name: 'Sender User',
+        uid: 'UID-1001-SEND',
+        balance: 600,
+        withdrawableBalance: 400,
+        todayReceived: 0,
+        transactions: [],
+      },
+      {
+        email: 'receiver@test.in',
+        password: 'pw',
+        name: 'Receiver User',
+        uid: 'UID-2002-RECV',
+        balance: 150,
+        withdrawableBalance: 100,
+        todayReceived: 0,
+        transactions: [],
+      },
+      {
+        email: 'banned@test.in',
+        password: 'pw',
+        name: 'Blocked User',
+        uid: 'UID-9999-BAN',
+        banned: true,
+        balance: 0,
+        transactions: [],
+      },
+    ],
+  };
+
+  // Lookup registered recipient and reject self or banned recipient
+  const selfLookup = findWalletRecipientByUid(baseState, 'UID-1001-SEND');
+  assert.equal(selfLookup.ok, false);
+
+  const bannedLookup = findWalletRecipientByUid(baseState, 'UID-9999-BAN');
+  assert.equal(bannedLookup.ok, false);
+
+  const validLookup = findWalletRecipientByUid(baseState, 'uid-2002-recv');
+  assert.equal(validLookup.ok, true);
+  if (validLookup.ok) {
+    assert.equal(validLookup.recipient.name, 'Receiver User');
+    assert.equal(validLookup.recipient.source, 'registered');
+  }
+
+  // Transfer ₹500 (₹400 withdrawable + ₹100 bonus): recipient gets ₹500 total but only ₹400 withdrawable
+  const qrPayload = buildWalletQrPayload({
+    uid: 'UID-2002-RECV',
+    name: 'Receiver User',
+    amountInr: 500,
+  });
+  const xfer = transferWalletByProfileId(baseState, {
+    recipientUid: qrPayload,
+    amountInr: 500,
+    note: 'Dinner split',
+    via: 'qr',
+    nowMs: 1730000000000,
+  });
+  assert.equal(xfer.ok, true);
+  if (!xfer.ok) return;
+
+  assert.equal(xfer.nextState.balance, 100);
+  assert.equal(xfer.nextState.withdrawableBalance, 0);
+  assert.equal(xfer.nextState.transactions[0]?.type, 'p2p_send');
+  assert.equal(xfer.nextState.transactions[0]?.amount, -500);
+
+  const updatedSender = xfer.nextState.registeredAccounts?.find(
+    (a) => a.uid === 'UID-1001-SEND'
+  );
+  const updatedRecv = xfer.nextState.registeredAccounts?.find(
+    (a) => a.uid === 'UID-2002-RECV'
+  );
+  assert.equal(updatedSender?.balance, 100);
+  assert.equal(updatedRecv?.balance, 650);
+  assert.equal(updatedRecv?.withdrawableBalance, 500);
+  assert.equal(updatedRecv?.todayReceived, 500);
+  assert.equal(updatedRecv?.transactions?.[0]?.type, 'p2p_receive');
+  assert.equal(updatedRecv?.transactions?.[0]?.amount, 500);
+
+  // Insufficient balance rejected
+  const over = transferWalletByProfileId(xfer.nextState, {
+    recipientUid: 'UID-2002-RECV',
+    amountInr: 250,
+    via: 'id',
+  });
+  assert.equal(over.ok, false);
+
+  // Unknown Profile ID rejected
+  const unknown = transferWalletByProfileId(baseState, {
+    recipientUid: 'UID-0000-GHOST',
+    amountInr: 50,
+    via: 'id',
+  });
+  assert.equal(unknown.ok, false);
+});
+
 
 
 

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Crypto Jackpot · Live</title>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
-<script src="./ouro-wallet-bridge.js"></script>
+<script src="./ouro-wallet-bridge.js?v=8"></script>
 <style>
 :root {
   --bg: #070b12;
@@ -548,22 +548,20 @@ function playSpinSound() {
 
 /* WIN — bright ascending chime + sparkle */
 function playWin(big) {
+  if (window.OuroBridge && window.OuroBridge.fx) return;
   if (!state.sound) return;
   ensureAudio();
   if (big) {
-    // major fanfare
     const melody = [523.25, 659.25, 783.99, 1046.5, 1318.5];
     melody.forEach((f, i) => {
       tone(f, 0.28, 'sine', 0.11, i * 0.11);
       tone(f * 2, 0.2, 'triangle', 0.04, i * 0.11 + 0.02);
     });
-    // sparkle arpeggio
     [1568, 1760, 2093, 2349].forEach((f, i) => {
       tone(f, 0.15, 'sine', 0.05, 0.55 + i * 0.07);
     });
     noiseBurst(0.15, 0.03, 0.1);
   } else {
-    // soft success: C-E-G
     [523.25, 659.25, 783.99].forEach((f, i) => {
       tone(f, 0.22, 'sine', 0.1, i * 0.1);
       tone(f * 2, 0.15, 'triangle', 0.03, i * 0.1 + 0.03);
@@ -573,16 +571,17 @@ function playWin(big) {
 }
 
 /* LOSE — low descending sad tone */
-function playLose() {
+function playLose(betAmt) {
+  if (window.OuroBridge && typeof window.OuroBridge.loss === 'function') {
+    window.OuroBridge.loss(betAmt || BETS[state.betIdx] || 10, 'No Match');
+    return;
+  }
   if (!state.sound) return;
   ensureAudio();
-  // drop: G → E → C (minor feel)
   tone(196, 0.18, 'triangle', 0.07, 0);
   tone(164.8, 0.22, 'triangle', 0.06, 0.16);
   tone(130.8, 0.35, 'sine', 0.08, 0.32);
-  // soft noise thud
   noiseBurst(0.12, 0.035, 0.05);
-  // muted buzz
   tone(90, 0.25, 'sawtooth', 0.025, 0.4);
 }
 
@@ -595,7 +594,6 @@ function playJP() {
     tone(f, 0.2, 'square', 0.08, i * 0.07);
     tone(f * 1.5, 0.15, 'sine', 0.03, i * 0.07 + 0.02);
   });
-  // final boom
   tone(65, 0.5, 'sine', 0.12, 0.75);
   noiseBurst(0.3, 0.06, 0.75);
   [1568, 2093, 2637].forEach((f, i) => tone(f, 0.25, 'sine', 0.05, 0.85 + i * 0.08));
@@ -603,8 +601,11 @@ function playJP() {
 
 function toggleSound() {
   state.sound = !state.sound;
+  if (window.OuroBridge && window.OuroBridge.setMuted) window.OuroBridge.setMuted(!state.sound);
   document.getElementById('sound-btn').textContent = state.sound ? '🔊' : '🔇';
-  if (state.sound) {
+  if (state.sound && window.OuroBridge && window.OuroBridge.fx) {
+    window.OuroBridge.fx.play('bet');
+  } else if (state.sound) {
     tone(660, 0.08, 'sine', 0.08, 0);
     tone(880, 0.1, 'sine', 0.06, 0.08);
   }
@@ -730,12 +731,15 @@ function resolveSpin(results, bet, isFree) {
 
   if (win > 0) {
     if (window.OuroBridge) {
-      window.OuroBridge.win(win, title);
+      window.OuroBridge.win(win, title, { silentFx: isJP });
       state.coins = window.OuroBridge.getBalance();
     } else {
       state.coins += win;
     }
-  } else if (!isFreeWin && !isJP) playLose();
+  } else if (isFreeWin && window.OuroBridge && window.OuroBridge.fx) {
+    window.OuroBridge.fx.play('win');
+    window.OuroBridge.fx.showWin(title, 'Bonus Spins Awarded');
+  } else if (!isFreeWin && !isJP) playLose(isFree ? 0 : bet);
 
   state.history.unshift({
     win: win > 0 || isJP || isFreeWin,

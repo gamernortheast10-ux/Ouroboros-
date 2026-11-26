@@ -113,10 +113,15 @@ function matchesHistoryFilter(tx: WalletTransaction, filter: HistoryFilter): boo
     );
   }
   if (filter === 'deposit') {
-    return tx.type === 'deposit' || tx.type === 'gift_redeem' || tx.type === 'sell_usdt';
+    return (
+      tx.type === 'deposit' ||
+      tx.type === 'gift_redeem' ||
+      tx.type === 'sell_usdt' ||
+      tx.type === 'p2p_receive'
+    );
   }
   if (filter === 'withdraw') {
-    return tx.type === 'withdraw';
+    return tx.type === 'withdraw' || tx.type === 'p2p_send';
   }
   return true;
 }

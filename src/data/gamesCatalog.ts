@@ -1,19 +1,20 @@
-import gameBalloonImg from '../assets/images/game_balloon_1795441143575.jpg';
-import gameChickenRoadImg from '../assets/images/game_chicken_road_1795441071291.jpg';
-import gameCoinflipImg from '../assets/images/game_coinflip_1795441070948.jpg';
-import gameColorPredictImg from '../assets/images/game_color_predict_1795441070959.jpg';
-import gameCryptoJackpotImg from '../assets/images/game_crypto_jackpot_1795441071556.jpg';
-import gameDragonTigerImg from '../assets/images/game_dragon_tiger_1795441071848.jpg';
-import gameHiloImg from '../assets/images/game_hilo_1795441143736.jpg';
-import gameLuckyWheelImg from '../assets/images/game_lucky_wheel_1795441071663.jpg';
-import gameMinesImg from '../assets/images/game_mines_1795441072528.jpg';
-import gamePlinkoImg from '../assets/images/game_plinko_1795441071862.jpg';
-import gameRouletteImg from '../assets/images/game_roulette_1795441070923.jpg';
-import gameRpsImg from '../assets/images/game_rps_1795441071042.jpg';
-import gameStairsImg from '../assets/images/game_stairs_1795441070999.jpg';
-import gameTowerImg from '../assets/images/game_tower_1795441071000.jpg';
-import gameTradeLiveImg from '../assets/images/game_trade_live_1795441071724.jpg';
-import gameTreasureImg from '../assets/images/game_treasure_1795441070974.jpg';
+import gameAviatorImg from '../assets/images/cover_aviator_wide_v2_1795683775355.jpg';
+import gameBalloonImg from '../assets/images/cover_balloon_v2_1795683776254.jpg';
+import gameChickenRoadImg from '../assets/images/cover_chicken_road_v2_1795683594268.jpg';
+import gameCoinflipImg from '../assets/images/cover_coinflip_v2_1795683607620.jpg';
+import gameColorPredictImg from '../assets/images/cover_color_predict_v2_1795683593530.jpg';
+import gameCryptoJackpotImg from '../assets/images/cover_crypto_jackpot_v2_1795683594928.jpg';
+import gameDragonTigerImg from '../assets/images/cover_dragon_tiger_v2_1795683597688.jpg';
+import gameHiloImg from '../assets/images/cover_hilo_v2_1795683775528.jpg';
+import gameLuckyWheelImg from '../assets/images/cover_lucky_wheel_v2_1795683597914.jpg';
+import gameMinesImg from '../assets/images/cover_mines_v2_1795683595762.jpg';
+import gamePlinkoImg from '../assets/images/cover_plinko_v2_1795683596756.jpg';
+import gameRouletteImg from '../assets/images/cover_roulette_v2_1795683597610.jpg';
+import gameRpsImg from '../assets/images/cover_rps_v2_1795683776263.jpg';
+import gameStairsImg from '../assets/images/cover_stairs_v2_1795683667794.jpg';
+import gameTowerImg from '../assets/images/cover_tower_v2_1795683598687.jpg';
+import gameTradeLiveImg from '../assets/images/cover_trade_live_v2_1795683595418.jpg';
+import gameTreasureImg from '../assets/images/cover_treasure_v2_1795683607547.jpg';
 
 export type GameCategory = 'All' | 'Crash & Risk' | 'Casino & Wheel' | 'Cards & Duel' | 'Instant';
 
@@ -43,7 +44,7 @@ export const GAMES_CATALOG: GameCatalogItem[] = [
     tag: 'Crash Flight',
     category: 'Crash & Risk',
     htmlPath: '/assets/aistudio/aviator_ouroboros.html',
-    bannerImage: '',
+    bannerImage: gameAviatorImg,
     fallbackGradient: 'linear-gradient(135deg, #450a0a 0%, #991b1b 48%, #dc2626 100%)',
     featured: true,
   },

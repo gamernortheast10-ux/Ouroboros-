@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Plinko · Drop</title>
-<script src="./ouro-wallet-bridge.js"></script>
+<script src="./ouro-wallet-bridge.js?v=8"></script>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -173,15 +173,21 @@ function tone(f,d,t='sine',v=0.07,w=0) {
   o.connect(g); g.connect(audioCtx.destination);
   o.start(t0); o.stop(t0+d+0.02);
 }
-function playHit() { tone(280+Math.random()*120, 0.04, 'square', 0.03); }
+function playHit() {
+  if (window.OuroBridge && window.OuroBridge.fx) { window.OuroBridge.fx.play('step'); return; }
+  tone(280+Math.random()*120, 0.04, 'square', 0.03);
+}
 function playLand(high) {
+  if (window.OuroBridge && window.OuroBridge.fx) return;
   if (high) [523,659,784].forEach((f,i)=>tone(f,0.12,'sine',0.07,i*0.06));
   else tone(200,0.1,'triangle',0.05);
 }
 function toggleSound() {
   soundOn = !soundOn;
+  if (window.OuroBridge && window.OuroBridge.setMuted) window.OuroBridge.setMuted(!soundOn);
   document.getElementById('soundBtn').textContent = soundOn ? '🔊' : '🔇';
-  if (soundOn) tone(600,0.07);
+  if (soundOn && window.OuroBridge && window.OuroBridge.fx) window.OuroBridge.fx.play('bet');
+  else if (soundOn) tone(600,0.07);
 }
 
 function fmt(n) { return n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -328,7 +334,11 @@ function tick() {
         b.vy = Math.abs(Math.sin(angle) * force) * 0.4 + 0.55;
         b.x = p.x + Math.cos(angle) * (b.radius + p.r + 1);
         b.y = p.y + Math.sin(angle) * (b.radius + p.r + 1);
-        playHit();
+        const nowHit = performance.now();
+        if (!b.lastHitMs || nowHit - b.lastHitMs > 55) {
+          b.lastHitMs = nowHit;
+          playHit();
+        }
       }
     });
 
@@ -344,14 +354,18 @@ function tick() {
       b.x = (slot + 0.5) * binW;
       const mult = m[slot];
       const payout = Math.round(b.bet * mult * 100) / 100;
+      const profit = payout - b.bet;
+      const isWinSlot = mult >= 1;
       if (window.OuroBridge && payout > 0) {
-        window.OuroBridge.win(payout, 'Plinko ' + mult + 'x');
+        window.OuroBridge.win(payout, 'Plinko ' + mult + 'x', { silentFx: !isWinSlot, skipVisual: !isWinSlot });
         balance = window.OuroBridge.getBalance();
       } else {
         balance += payout;
       }
+      if (!isWinSlot && window.OuroBridge && typeof window.OuroBridge.loss === 'function') {
+        window.OuroBridge.loss(Math.max(0.01, b.bet - payout), 'Plinko ' + mult + 'x');
+      }
       updateBal();
-      const profit = payout - b.bet;
       if (mult >= 2) playLand(true);
       else playLand(false);
       showToast(mult+'x · '+(profit>=0?'+':'')+'₹'+fmt(profit), profit>=0?'win':'lose');

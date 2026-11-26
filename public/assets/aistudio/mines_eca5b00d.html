@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Mines · Risk</title>
-<script src="./ouro-wallet-bridge.js"></script>
+<script src="./ouro-wallet-bridge.js?v=8"></script>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -215,13 +215,24 @@ function tone(f,d,t='sine',v=0.08,w=0) {
   o.connect(g); g.connect(audioCtx.destination);
   o.start(t0); o.stop(t0+d+0.02);
 }
-function playGem() { tone(520,0.08,'sine',0.07); tone(780,0.1,'sine',0.05,0.06); }
-function playMine() { tone(120,0.2,'sawtooth',0.1); tone(60,0.3,'triangle',0.07,0.1); }
-function playCash() { [523,659,784,1046].forEach((f,i)=>tone(f,0.15,'sine',0.08,i*0.07)); }
+function playGem() {
+  if (window.OuroBridge && window.OuroBridge.fx) { window.OuroBridge.fx.play('step', { pitchStep: gems }); return; }
+  tone(520,0.08,'sine',0.07); tone(780,0.1,'sine',0.05,0.06);
+}
+function playMine() {
+  if (window.OuroBridge && typeof window.OuroBridge.loss === 'function') { window.OuroBridge.loss(betAmount, 'Mine Detonated!'); return; }
+  tone(120,0.2,'sawtooth',0.1); tone(60,0.3,'triangle',0.07,0.1);
+}
+function playCash() {
+  if (window.OuroBridge && window.OuroBridge.fx) return;
+  [523,659,784,1046].forEach((f,i)=>tone(f,0.15,'sine',0.08,i*0.07));
+}
 function toggleSound() {
   soundOn = !soundOn;
+  if (window.OuroBridge && window.OuroBridge.setMuted) window.OuroBridge.setMuted(!soundOn);
   document.getElementById('soundBtn').textContent = soundOn ? '🔊' : '🔇';
-  if (soundOn) tone(600,0.07);
+  if (soundOn && window.OuroBridge && window.OuroBridge.fx) window.OuroBridge.fx.play('bet');
+  else if (soundOn) tone(600,0.07);
 }
 
 function fmt(n) { return n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }

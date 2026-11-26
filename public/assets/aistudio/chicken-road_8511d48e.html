@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Chicken Road · Risk</title>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Space+Grotesk:wght@600;700&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
-<script src="./ouro-wallet-bridge.js"></script>
+<script src="./ouro-wallet-bridge.js?v=8"></script>
 <style>
 :root {
   --bg: #0c1018;
@@ -327,25 +327,34 @@ function tone(freq, dur, type='sine', vol=0.08, when=0) {
   o.start(t0); o.stop(t0 + dur + 0.02);
 }
 function playStep() {
+  if (window.OuroBridge && window.OuroBridge.fx) { window.OuroBridge.fx.play('step', { pitchStep: currentLane }); return; }
   tone(320, 0.06, 'square', 0.05);
   tone(480, 0.05, 'sine', 0.04, 0.05);
 }
 function playHit() {
+  if (window.OuroBridge && typeof window.OuroBridge.loss === 'function') {
+    window.OuroBridge.loss(betAmount, 'Hit in Lane ' + (currentLane + 1));
+    return;
+  }
   tone(120, 0.2, 'sawtooth', 0.1);
   tone(80, 0.3, 'triangle', 0.08, 0.1);
   tone(60, 0.25, 'square', 0.05, 0.2);
 }
 function playCash() {
+  if (window.OuroBridge && window.OuroBridge.fx) return;
   [523, 659, 784, 1046].forEach((f,i) => tone(f, 0.16, 'sine', 0.08, i*0.07));
 }
 function playStart() {
+  if (window.OuroBridge && window.OuroBridge.fx) return;
   tone(400, 0.08, 'square', 0.06);
   tone(600, 0.1, 'sine', 0.05, 0.08);
 }
 function toggleSound() {
   soundOn = !soundOn;
+  if (window.OuroBridge && window.OuroBridge.setMuted) window.OuroBridge.setMuted(!soundOn);
   document.getElementById('soundBtn').textContent = soundOn ? '🔊' : '🔇';
-  if (soundOn) tone(600, 0.07);
+  if (soundOn && window.OuroBridge && window.OuroBridge.fx) window.OuroBridge.fx.play('bet');
+  else if (soundOn) tone(600, 0.07);
 }
 
 function fmt(n) {

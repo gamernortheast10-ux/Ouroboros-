@@ -39,6 +39,9 @@ export interface MarketAsset {
   brandColor: string;
   brandText: string;
   brandGlyph: string;
+  logoUrl?: string;
+  fallbackLogoUrl?: string;
+  logoBg?: string;
 }
 
 export interface PredictionMarket {
@@ -168,7 +171,9 @@ export interface WalletTransaction {
     | 'game_bet'
     | 'game_win'
     | 'game_refund'
-    | 'daily_checkin';
+    | 'daily_checkin'
+    | 'p2p_send'
+    | 'p2p_receive';
   title: string;
   amount: number; // positive credit, negative debit
   timestamp: string;

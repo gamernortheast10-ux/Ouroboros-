@@ -9,8 +9,9 @@ import {
   EyeOff,
   FileText,
   Gamepad2,
-  Play,
+  Lock,
   Plus,
+  ScanLine,
   Search,
   ShieldCheck,
   TrendingUp,
@@ -42,6 +43,7 @@ import { GameBannerArt } from './GamesView';
 import { MiniCandleBars } from './SparklineChart';
 import { FlagGlobe, FlagGlobeMarker } from './ui/flag-globe';
 import { WalletModalMode } from './WalletModal';
+import { WalletScannerTab } from './WalletScannerModal';
 import { DailyCheckInCard } from './DailyCheckInCard';
 
 interface MarketsViewProps {
@@ -58,6 +60,7 @@ interface MarketsViewProps {
   onOpenAllBets: () => void;
   onOpenPrediction: (market: PredictionMarket, choice: 'yes' | 'no') => void;
   onOpenWalletModal: (mode: WalletModalMode) => void;
+  onOpenScanner?: (tab?: WalletScannerTab) => void;
   onNavigateNews: () => void;
   onNavigateGift?: () => void;
   onOpenTerms?: () => void;
@@ -172,6 +175,7 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
   onOpenAllBets,
   onOpenPrediction,
   onOpenWalletModal,
+  onOpenScanner,
   onNavigateNews,
   onNavigateGift,
   onOpenTerms,
@@ -375,46 +379,92 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
             <div aria-hidden="true" className="animate-wallet-sheen" />
 
             <div className="relative z-10">
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-1.5 text-[13px] text-white/90">
-                  <span>{t(lang, 'totalBalance')}</span>
-                  <button
-                    type="button"
-                    onClick={() => setHideBalance((v) => !v)}
-                    aria-label={hideBalance ? 'Show balance' : 'Hide balance'}
-                    className="p-1 rounded-lg hover:bg-white/10 transition-colors"
-                  >
-                    {hideBalance ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
+              {state.isAuthenticated ? (
+                <>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-1.5 text-[13px] text-white/90">
+                      <span>{t(lang, 'totalBalance')}</span>
+                      <button
+                        type="button"
+                        onClick={() => setHideBalance((v) => !v)}
+                        aria-label={hideBalance ? 'Show balance' : 'Hide balance'}
+                        className="p-1 rounded-lg hover:bg-white/10 transition-colors"
+                      >
+                        {hideBalance ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                    <span className="bg-white/20 text-[11px] font-semibold px-2.5 py-0.5 rounded-full text-white tracking-wide">
+                      WALLET · {currency}
+                    </span>
+                  </div>
+
+                  <div className="text-[31px] sm:text-[36px] font-extrabold tracking-tight text-white my-1 mb-4 font-mono-nums leading-tight">
+                    {hideBalance ? '••••••••' : formatCurrency(animatedBalance, currency, fxRates)}
+                  </div>
+
+                  <div className="flex gap-2 sm:gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => onOpenWalletModal('topup')}
+                      className="preserve-white flex-1 min-h-[44px] sm:min-h-[46px] px-3 bg-white text-[#7c3aed] hover:bg-purple-50 rounded-[14px] font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-[0_6px_20px_rgba(0,0,0,0.18)] transition-transform active:scale-95 whitespace-nowrap"
+                    >
+                      <Plus className="w-4 h-4 stroke-[2.5] shrink-0" />
+                      <span>{t(lang, 'topUp')}</span>
+                    </button>
+                    {onOpenScanner && (
+                      <button
+                        type="button"
+                        data-testid="hero-scan-pay-btn"
+                        onClick={() => onOpenScanner('scan')}
+                        className="flex-1 min-h-[44px] sm:min-h-[46px] px-3 bg-white/15 hover:bg-white/25 border border-white/25 rounded-[14px] font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 text-white transition-transform active:scale-95 whitespace-nowrap"
+                      >
+                        <ScanLine className="w-4 h-4 shrink-0" />
+                        <span>Scan &amp; Pay</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onOpenWalletModal('withdraw')}
+                      aria-label="Withdraw funds"
+                      title="Withdraw"
+                      className="w-[46px] sm:w-[50px] min-h-[44px] sm:min-h-[46px] bg-white/15 hover:bg-white/25 border border-white/20 rounded-[14px] flex items-center justify-center text-white transition-transform active:scale-95 shrink-0"
+                    >
+                      <ArrowDown className="w-5 h-5" />
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col justify-between h-full gap-3" data-testid="guest-wallet-locked-card">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-white/90">
+                      <Lock className="w-3.5 h-3.5 text-purple-200" />
+                      Wallet Access Locked
+                    </span>
+                    <span className="text-[11px] font-semibold text-purple-100/80">
+                      Guest Preview
+                    </span>
+                  </div>
+                  <div>
+                    <div className="text-[24px] sm:text-[28px] font-extrabold tracking-tight text-white leading-tight">
+                      Sign in to unlock wallet
+                    </div>
+                    <p className="text-xs text-purple-100/85 mt-1 leading-snug">
+                      Browse live markets, stocks &amp; instant games freely. Sign in to view balance, deposit or play.
+                    </p>
+                  </div>
+                  <div className="flex gap-2.5 sm:gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={onOpenAuth}
+                      data-testid="guest-wallet-signin-btn"
+                      className="preserve-white flex-1 min-h-[44px] bg-white text-[#6d28d9] hover:bg-purple-50 rounded-[14px] font-bold text-sm flex items-center justify-center gap-2 shadow-[0_6px_20px_rgba(0,0,0,0.18)] transition-transform active:scale-95 whitespace-nowrap"
+                    >
+                      <User className="w-4 h-4" />
+                      Sign In / Register
+                    </button>
+                  </div>
                 </div>
-                <span className="bg-white/20 text-[11px] font-semibold px-2.5 py-0.5 rounded-full text-white tracking-wide">
-                  WALLET · {currency}
-                </span>
-              </div>
-
-              <div className="text-[31px] sm:text-[36px] font-extrabold tracking-tight text-white my-1 mb-4 font-mono-nums leading-tight">
-                {hideBalance ? '••••••••' : formatCurrency(animatedBalance, currency, fxRates)}
-              </div>
-
-              <div className="flex gap-2.5 sm:gap-3">
-                <button
-                  type="button"
-                  onClick={() => onOpenWalletModal('topup')}
-                  className="preserve-white flex-1 min-h-[44px] sm:min-h-[46px] bg-white text-[#7c3aed] hover:bg-purple-50 rounded-[14px] font-bold text-sm flex items-center justify-center gap-2 shadow-[0_6px_20px_rgba(0,0,0,0.18)] transition-transform active:scale-95 whitespace-nowrap"
-                >
-                  <Plus className="w-4 h-4 stroke-[2.5]" />
-                  {t(lang, 'topUp')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOpenWalletModal('withdraw')}
-                  aria-label="Withdraw funds"
-                  title="Withdraw"
-                  className="w-[48px] sm:w-[52px] min-h-[44px] sm:min-h-[46px] bg-white/15 hover:bg-white/25 border border-white/20 rounded-[14px] flex items-center justify-center text-white transition-transform active:scale-95 shrink-0"
-                >
-                  <ArrowDown className="w-5 h-5" />
-                </button>
-              </div>
+              )}
             </div>
           </div>
 
@@ -635,7 +685,9 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
             </div>
             <div className="text-xs text-[#94a3b8] mb-1">{t(lang, 'todayReceive')}</div>
             <div className="text-xl font-bold text-[#f1f5f9] font-mono-nums">
-              {formatCurrency(state.todayReceived, currency, fxRates)}
+              {state.isAuthenticated
+                ? formatCurrency(state.todayReceived, currency, fxRates)
+                : 'Locked'}
             </div>
           </div>
 
@@ -644,15 +696,22 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
               <ShieldCheck className="w-[18px] h-[18px]" />
             </div>
             <div className="text-xs text-[#94a3b8] mb-1">
-              {t(lang, 'realizedPnl')} · {openP2pCount} Open
+              {state.isAuthenticated
+                ? `${t(lang, 'realizedPnl')} · ${openP2pCount} Open`
+                : t(lang, 'realizedPnl')}
             </div>
             <div
               className={`text-xl font-bold font-mono-nums ${
-                state.realizedPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                !state.isAuthenticated
+                  ? 'text-[#f1f5f9]'
+                  : state.realizedPnl >= 0
+                  ? 'text-emerald-400'
+                  : 'text-rose-400'
               }`}
             >
-              {state.realizedPnl >= 0 ? '+' : ''}
-              {formatCurrency(state.realizedPnl, currency, fxRates)}
+              {state.isAuthenticated
+                ? `${state.realizedPnl >= 0 ? '+' : ''}${formatCurrency(state.realizedPnl, currency, fxRates)}`
+                : 'Sign in'}
             </div>
           </div>
         </div>
@@ -850,28 +909,8 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
                       game={game}
                       className="group-hover:scale-105 transition-transform duration-300"
                     />
-                    <div
-                      aria-hidden="true"
-                      className={`absolute inset-0 ${
-                        isFeatured
-                          ? 'bg-gradient-to-t from-[#090612]/95 via-[#090612]/45 to-black/10'
-                          : 'bg-gradient-to-t from-black/90 via-black/30 to-transparent'
-                      }`}
-                    />
-                    <div className="absolute top-2.5 right-2.5 w-7 h-7 rounded-full bg-black/50 backdrop-blur-md border border-white/25 text-white flex items-center justify-center group-hover:bg-[#7c3aed] group-hover:border-[#a78bfa] transition-colors">
-                      <Play className="w-3 h-3 fill-current ml-0.5" />
-                    </div>
-                    <div className="absolute inset-x-0 bottom-0 p-3">
-                      <div className="text-[9.5px] font-bold uppercase tracking-wider text-[#c4b5fd] truncate">
-                        {game.tag}
-                      </div>
-                      <div
-                        className={`${
-                          isFeatured ? 'text-[14px] sm:text-[15px]' : 'text-xs sm:text-[13px]'
-                        } font-extrabold text-white truncate leading-tight mt-0.5`}
-                      >
-                        {game.title}
-                      </div>
+                    <div className="sr-only">
+                      {game.title} — {game.tag}
                     </div>
                   </button>
                 );

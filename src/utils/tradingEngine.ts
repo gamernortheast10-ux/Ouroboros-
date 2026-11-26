@@ -3116,6 +3116,343 @@ export function settlePredictionMarketByOutcome(
   };
 }
 
+// ============================================================================
+// P2P WALLET QR & PROFILE ID TRANSFER ENGINE
+// ============================================================================
+
+export const MIN_P2P_WALLET_TRANSFER_INR = 10;
+export const MAX_P2P_WALLET_TRANSFER_INR = 100000;
+
+export interface WalletQrPayload {
+  uid: string;
+  name: string;
+  amountInr?: number;
+}
+
+export interface WalletRecipientLookupResult {
+  uid: string;
+  name: string;
+  email?: string;
+  source: 'registered' | 'directory';
+  tierName?: string;
+}
+
+export function buildWalletQrPayload(params: WalletQrPayload): string {
+  const cleanUid = params.uid.trim().toUpperCase();
+  const cleanName = (params.name || 'Trader').trim();
+  const qp = new URLSearchParams();
+  qp.set('uid', cleanUid);
+  if (cleanName) qp.set('name', cleanName);
+  const amt = Number(params.amountInr);
+  if (Number.isFinite(amt) && amt > 0) {
+    qp.set('am', String(roundMoney(amt)));
+  }
+  return `ouroboros://wallet-pay?${qp.toString()}`;
+}
+
+export function parseWalletQrOrProfileInput(rawText: string):
+  | {
+      ok: true;
+      uid: string;
+      nameHint?: string;
+      amountInr?: number;
+    }
+  | {
+      ok: false;
+      error: string;
+    } {
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    return { ok: false, error: 'Scan a valid Ouroboros QR code or enter a Profile ID.' };
+  }
+
+  // 1. Standard Ouroboros QR URI: ouroboros://wallet-pay?uid=...&name=...&am=...
+  if (/^ouroboros:\/\//i.test(trimmed)) {
+    try {
+      const normalized = trimmed.replace(/^ouroboros:\/\//i, 'https://ouroboros.local/');
+      const url = new URL(normalized);
+      const uid = (url.searchParams.get('uid') || '').trim().toUpperCase();
+      if (!uid) {
+        return { ok: false, error: 'QR code does not contain a valid Profile ID.' };
+      }
+      const nameHint = url.searchParams.get('name')?.trim() || undefined;
+      const rawAmt = Number(url.searchParams.get('am'));
+      const amountInr =
+        Number.isFinite(rawAmt) && rawAmt > 0 ? roundMoney(rawAmt) : undefined;
+      return { ok: true, uid, nameHint, amountInr };
+    } catch {
+      return { ok: false, error: 'Could not read Ouroboros payment QR code.' };
+    }
+  }
+
+  // 2. JSON QR payload fallback
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(trimmed) as {
+        uid?: unknown;
+        name?: unknown;
+        amount?: unknown;
+        am?: unknown;
+      };
+      const uid = typeof parsed.uid === 'string' ? parsed.uid.trim().toUpperCase() : '';
+      if (!uid) {
+        return { ok: false, error: 'QR payload is missing a recipient Profile ID.' };
+      }
+      const rawAmt = Number(parsed.amount ?? parsed.am);
+      return {
+        ok: true,
+        uid,
+        nameHint: typeof parsed.name === 'string' ? parsed.name.trim() : undefined,
+        amountInr:
+          Number.isFinite(rawAmt) && rawAmt > 0 ? roundMoney(rawAmt) : undefined,
+      };
+    } catch {
+      return { ok: false, error: 'Invalid QR payload format.' };
+    }
+  }
+
+  // 3. Direct Profile ID (e.g. UID-8412-VIKRA)
+  const cleanUid = trimmed.toUpperCase();
+  if (!/^UID-[A-Z0-9-]{3,28}$/i.test(cleanUid)) {
+    return {
+      ok: false,
+      error: 'Enter a valid Profile ID (for example, UID-8412-VIKRA) or scan an Ouroboros QR.',
+    };
+  }
+  return { ok: true, uid: cleanUid };
+}
+
+export function findWalletRecipientByUid(
+  state: AppState,
+  rawUid: string
+):
+  | { ok: true; recipient: WalletRecipientLookupResult }
+  | { ok: false; error: string } {
+  const cleanUid = rawUid.trim().toUpperCase();
+  if (!cleanUid) {
+    return { ok: false, error: 'Please enter or scan a recipient Profile ID.' };
+  }
+
+  const selfUid = (state.profile.uid || '').trim().toUpperCase();
+  if (selfUid && cleanUid === selfUid) {
+    return { ok: false, error: 'You cannot send money to your own Profile ID.' };
+  }
+
+  const selfEmail = (state.profile.email || '').trim().toLowerCase();
+  const regAcc = (state.registeredAccounts ?? []).find(
+    (acc) => (acc.uid || '').trim().toUpperCase() === cleanUid
+  );
+  if (regAcc) {
+    if (selfEmail && regAcc.email.trim().toLowerCase() === selfEmail) {
+      return { ok: false, error: 'You cannot send money to your own wallet.' };
+    }
+    if (regAcc.banned || regAcc.frozen) {
+      return { ok: false, error: 'Recipient wallet is currently restricted and cannot receive transfers.' };
+    }
+    return {
+      ok: true,
+      recipient: {
+        uid: regAcc.uid.trim().toUpperCase(),
+        name: regAcc.name,
+        email: regAcc.email,
+        source: 'registered',
+      },
+    };
+  }
+
+  const directoryAcc = SEED_TOP_TRADERS.find(
+    (t) => t.uid.trim().toUpperCase() === cleanUid
+  );
+  if (directoryAcc) {
+    return {
+      ok: true,
+      recipient: {
+        uid: directoryAcc.uid.trim().toUpperCase(),
+        name: directoryAcc.name,
+        source: 'directory',
+        tierName: directoryAcc.tierName,
+      },
+    };
+  }
+
+  return {
+    ok: false,
+    error: `No Ouroboros wallet found for Profile ID "${cleanUid}". Check the ID or scan their QR code again.`,
+  };
+}
+
+export function transferWalletByProfileId(
+  state: AppState,
+  params: {
+    recipientUid: string;
+    amountInr: number;
+    note?: string;
+    via?: 'qr' | 'id';
+    nowMs?: number;
+  }
+):
+  | {
+      ok: true;
+      nextState: AppState;
+      recipient: WalletRecipientLookupResult;
+      amountInr: number;
+      txId: string;
+    }
+  | { ok: false; error: string } {
+  if (!state.isAuthenticated) {
+    return { ok: false, error: 'Please sign in to send money from your wallet.' };
+  }
+
+  const restriction = getCurrentUserRestriction(state);
+  if (restriction.restricted) {
+    return {
+      ok: false,
+      error: `${restriction.banned ? 'Account banned' : 'Account is currently frozen'}${restriction.reason ? `: ${restriction.reason}` : '.'}`,
+    };
+  }
+  if (restriction.withdrawalsBlocked) {
+    return {
+      ok: false,
+      error: 'Transfers & withdrawals are currently paused for your account.',
+    };
+  }
+
+  const parsed = parseWalletQrOrProfileInput(params.recipientUid);
+  if (!parsed.ok) {
+    return { ok: false, error: parsed.error };
+  }
+
+  const lookup = findWalletRecipientByUid(state, parsed.uid);
+  if (!lookup.ok) {
+    return { ok: false, error: lookup.error };
+  }
+
+  const amountInr = roundMoney(Number(params.amountInr));
+  if (!Number.isFinite(amountInr) || amountInr < MIN_P2P_WALLET_TRANSFER_INR) {
+    return {
+      ok: false,
+      error: `Minimum wallet transfer is ₹${MIN_P2P_WALLET_TRANSFER_INR}.`,
+    };
+  }
+  if (amountInr > MAX_P2P_WALLET_TRANSFER_INR) {
+    return {
+      ok: false,
+      error: `Maximum single wallet transfer is ₹${MAX_P2P_WALLET_TRANSFER_INR.toLocaleString('en-IN')}.`,
+    };
+  }
+  if (state.balance < amountInr) {
+    return {
+      ok: false,
+      error: `Insufficient balance. Available ₹${state.balance.toFixed(2)}.`,
+    };
+  }
+
+  const nowMs = params.nowMs ?? Date.now();
+  const stamp = formatExactDateTime(nowMs);
+  const cleanNote = params.note?.trim() || '';
+  const channelLabel = params.via === 'qr' ? 'QR Scan' : 'Profile ID';
+  const senderUid = (state.profile.uid || 'UID-TRADER').trim().toUpperCase();
+  const senderEmail = (state.profile.email || '').trim().toLowerCase();
+  const senderName = (state.profile.name || 'Trader').trim();
+  const recipient = lookup.recipient;
+
+  const currentWithdrawable = Math.min(
+    state.balance,
+    Math.max(0, state.withdrawableBalance ?? state.balance)
+  );
+  // Preserve owner bonus-gate: only withdrawable portion carries withdrawable status to recipient.
+  const withdrawableTransferred = roundMoney(Math.min(amountInr, currentWithdrawable));
+  const nextSenderBalance = roundMoney(state.balance - amountInr);
+  const nextSenderWithdrawable = Math.min(
+    nextSenderBalance,
+    roundMoney(currentWithdrawable - withdrawableTransferred)
+  );
+
+  const txId = `tx-p2p-${nowMs}-${Math.random().toString(36).slice(2, 6)}`;
+  const senderTx: WalletTransaction = {
+    id: txId,
+    type: 'p2p_send',
+    title: `Sent to ${recipient.name}`,
+    amount: -amountInr,
+    timestamp: stamp,
+    status: 'Completed',
+    meta: `${channelLabel} · ${recipient.uid}${cleanNote ? ` · ${cleanNote}` : ''}`,
+    createdAtMs: nowMs,
+    userEmail: senderEmail || undefined,
+    userName: senderName,
+    userUid: senderUid,
+    destinationSummary: `${recipient.name} (${recipient.uid})`,
+    destinationCopyValue: recipient.uid,
+  };
+
+  const recipientTx: WalletTransaction = {
+    id: `tx-p2p-rx-${nowMs}-${Math.random().toString(36).slice(2, 6)}`,
+    type: 'p2p_receive',
+    title: `Received from ${senderName}`,
+    amount: amountInr,
+    timestamp: stamp,
+    status: 'Credited',
+    meta: `${channelLabel} · From ${senderUid}${cleanNote ? ` · ${cleanNote}` : ''}`,
+    createdAtMs: nowMs,
+    credited: true,
+    userEmail: recipient.email,
+    userName: recipient.name,
+    userUid: recipient.uid,
+    destinationSummary: `${senderName} (${senderUid})`,
+    destinationCopyValue: senderUid,
+  };
+
+  const nextSenderTransactions = [senderTx, ...state.transactions];
+  const nextRegistered = (state.registeredAccounts ?? []).map((acc) => {
+    const accEmail = acc.email.trim().toLowerCase();
+    const accUid = (acc.uid || '').trim().toUpperCase();
+    if (senderEmail && accEmail === senderEmail) {
+      return {
+        ...acc,
+        balance: nextSenderBalance,
+        withdrawableBalance: nextSenderWithdrawable,
+        transactions: nextSenderTransactions,
+      };
+    }
+    if (accUid === recipient.uid) {
+      const recBal = roundMoney((acc.balance ?? 0) + amountInr);
+      const recWd = Math.min(
+        recBal,
+        roundMoney((acc.withdrawableBalance ?? 0) + withdrawableTransferred)
+      );
+      return {
+        ...acc,
+        balance: recBal,
+        withdrawableBalance: recWd,
+        todayReceived: roundMoney((acc.todayReceived ?? 0) + amountInr),
+        transactions: [recipientTx, ...(acc.transactions ?? [])],
+      };
+    }
+    return acc;
+  });
+
+  const nextPlatformTxs = [senderTx, ...(state.platformTransactions ?? [])].slice(
+    0,
+    300
+  );
+
+  return {
+    ok: true,
+    recipient,
+    amountInr,
+    txId,
+    nextState: {
+      ...state,
+      balance: nextSenderBalance,
+      withdrawableBalance: nextSenderWithdrawable,
+      transactions: nextSenderTransactions,
+      platformTransactions: nextPlatformTxs,
+      registeredAccounts: nextRegistered,
+    },
+  };
+}
+
+
 
 
 

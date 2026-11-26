@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Color Predict · Live</title>
-  <script src="./ouro-wallet-bridge.js"></script>
+  <script src="./ouro-wallet-bridge.js?v=8"></script>
   <style>
     :root {
       --primary-gold: #cfa972;
@@ -1093,9 +1093,11 @@
     let soundOn = true;
     function toggleSound() {
       soundOn = !soundOn;
+      if (window.OuroBridge && window.OuroBridge.setMuted) window.OuroBridge.setMuted(!soundOn);
       const btn = document.getElementById('soundToggleBtn');
       if (btn) btn.textContent = soundOn ? '🔊' : '🔇';
-      if (soundOn) soundTone(620, 0.08);
+      if (soundOn && window.OuroBridge && window.OuroBridge.fx) window.OuroBridge.fx.play('bet');
+      else if (soundOn) soundTone(620, 0.08);
     }
     function soundTone(freq, length = 0.1, wave = 'sine') {
       if (!soundOn) return;
@@ -1115,12 +1117,17 @@
     }
 
     function playWinJingle() {
+      if (window.OuroBridge && window.OuroBridge.fx) return;
       [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
         setTimeout(() => soundTone(freq, 0.28, 'triangle'), idx * 110);
       });
     }
 
     function playLossJingle() {
+      if (window.OuroBridge && typeof window.OuroBridge.loss === 'function') {
+        window.OuroBridge.loss('Missed Round', 'Result Did Not Match');
+        return;
+      }
       [370, 310, 245].forEach((freq, idx) => {
         setTimeout(() => soundTone(freq, 0.22, 'sawtooth'), idx * 130);
       });

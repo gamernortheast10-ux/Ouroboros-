@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <circle cx="32" cy="32" r="27" fill="#0F172A" stroke="#D97706" stroke-width="3.5"/>
+  <circle cx="32" cy="32" r="20" fill="#1E293B" stroke="#FBBF24" stroke-width="1.5"/>
+  <path d="M32 16V44" stroke="#FBBF24" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M32 22C25 18 20 20 18 24C23 23 27 24 32 27C37 24 41 23 46 24C44 20 39 18 32 22Z" fill="#34D399"/>
+  <path d="M23 35H41V42C41 44 37 46 32 46C27 46 23 44 23 42V35Z" fill="#F59E0B"/>
+  <text x="32" y="42.5" text-anchor="middle" fill="#0F172A" font-family="Arial, sans-serif" font-weight="900" font-size="8">RBI</text>
+</svg>
