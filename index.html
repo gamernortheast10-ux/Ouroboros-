@@ -18,16 +18,20 @@
         }
         window.addEventListener('error', function (ev) {
           var root = document.getElementById('root');
-          if (root && root.childElementCount === 0 && ev && ev.message) {
+          if (!root || root.childElementCount > 0 || !ev) return;
+          var target = ev.target;
+          var isFatalAsset = target && (target.tagName === 'SCRIPT' || (target.tagName === 'LINK' && target.rel === 'stylesheet'));
+          var msg = ev.message || (isFatalAsset ? 'Failed to load ' + (target.src || target.href) : '');
+          if (msg) {
             root.innerHTML =
               '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#09090f;color:#f4f4f8;font-family:sans-serif;">' +
               '<div style="max-width:480px;width:100%;background:#12121d;border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:24px;">' +
               '<h1 style="margin:0 0 8px;font-size:18px;">Failed to load Ouroboros</h1>' +
-              '<p style="margin:0 0 12px;font-size:13px;color:#cbd5e1;">' + String(ev.message).replace(/</g, '&lt;') + '</p>' +
+              '<p style="margin:0 0 12px;font-size:13px;color:#cbd5e1;word-break:break-word;">' + String(msg).replace(/</g, '&lt;') + '</p>' +
               '<button onclick="window.location.reload()" style="padding:10px 16px;border:0;border-radius:10px;background:#7c5cfc;color:#fff;font-weight:600;cursor:pointer;">Reload</button>' +
               '</div></div>';
           }
-        });
+        }, true);
       })();
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -36,6 +40,6 @@
   </head>
   <body class="bg-[#09090f] text-[#f4f4f8] antialiased selection:bg-[#7c5cfc]/30 selection:text-white">
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>
