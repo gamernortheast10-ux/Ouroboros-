@@ -1,0 +1,387 @@
+{
+  "entities": {
+    "UserPublic": {
+      "title": "UserPublic",
+      "description": "Non-PII public trader identity and referral profile",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Public display name",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "referralCode": {
+          "type": "string",
+          "description": "Unique invite code",
+          "minLength": 4,
+          "maxLength": 24,
+          "pattern": "^[A-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": ["uid", "displayName", "referralCode", "createdAt", "updatedAt"]
+    },
+    "UserPrivate": {
+      "title": "UserPrivate",
+      "description": "PII-isolated private wallet, contact info, login activity, and account lifecycle status",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "appUid": {
+          "type": "string",
+          "description": "In-app display wallet UID",
+          "maxLength": 64
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User email address",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "name": {
+          "type": "string",
+          "description": "Account holder name",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "phone": {
+          "type": "string",
+          "description": "Optional phone number",
+          "maxLength": 24
+        },
+        "balance": {
+          "type": "number",
+          "description": "Total wallet balance in INR"
+        },
+        "withdrawableBalance": {
+          "type": "number",
+          "description": "Withdrawable balance in INR"
+        },
+        "realizedPnl": {
+          "type": "number",
+          "description": "Realized profit and loss in INR"
+        },
+        "totalDepositedInr": {
+          "type": "number",
+          "description": "Verified total deposits in INR"
+        },
+        "totalWithdrawnInr": {
+          "type": "number",
+          "description": "Completed total withdrawals in INR"
+        },
+        "referralCode": {
+          "type": "string",
+          "description": "User invite code",
+          "minLength": 4,
+          "maxLength": 24,
+          "pattern": "^[A-Z0-9_\\-]+$"
+        },
+        "referredByCode": {
+          "type": "string",
+          "description": "Optional referrer code used at registration",
+          "maxLength": 24
+        },
+        "referralRewardSettled": {
+          "type": "boolean",
+          "description": "Whether signup referral reward has been credited"
+        },
+        "lastLoginAtMs": {
+          "type": "number",
+          "description": "Epoch milliseconds of latest login activity"
+        },
+        "deactivated": {
+          "type": "boolean",
+          "description": "Whether account is deactivated due to 60+ days inactivity or admin toggle"
+        },
+        "deactivatedAtMs": {
+          "type": "number",
+          "description": "Epoch milliseconds when deactivation occurred"
+        },
+        "deactivatedReason": {
+          "type": "string",
+          "description": "Reason for account deactivation",
+          "maxLength": 160
+        },
+        "deactivatedBy": {
+          "type": "string",
+          "enum": ["inactivity_60d", "admin"],
+          "maxLength": 24
+        },
+        "frozen": {
+          "type": "boolean"
+        },
+        "banned": {
+          "type": "boolean"
+        },
+        "withdrawalsBlocked": {
+          "type": "boolean"
+        },
+        "tradingBlocked": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "name",
+        "balance",
+        "withdrawableBalance",
+        "realizedPnl",
+        "referralCode",
+        "referralRewardSettled",
+        "lastLoginAtMs",
+        "deactivated",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserBet": {
+      "title": "UserBet",
+      "description": "User prediction bet or trade position record",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "marketId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "choice": {
+          "type": "string",
+          "enum": ["yes", "no"],
+          "maxLength": 10
+        },
+        "stake": {
+          "type": "number"
+        },
+        "multiplier": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["open", "won", "lost"],
+          "maxLength": 16
+        },
+        "payout": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "marketId", "choice", "stake", "multiplier", "status", "createdAt", "updatedAt"]
+    },
+    "UserTransaction": {
+      "title": "UserTransaction",
+      "description": "Wallet ledger entry for deposits, withdrawals, trades, and referral credits",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "deposit",
+            "withdraw",
+            "trade_open",
+            "trade_close",
+            "gift",
+            "p2p_send",
+            "p2p_receive",
+            "referral_bonus",
+            "daily_checkin"
+          ],
+          "maxLength": 32
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "amount": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Completed", "Credited", "Settled", "In Process", "Under Review", "Rejected"],
+          "maxLength": 24
+        },
+        "meta": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "type", "title", "amount", "status", "createdAt", "updatedAt"]
+    },
+    "PredictionMarketDoc": {
+      "title": "PredictionMarketDoc",
+      "description": "Owner-managed live Yes/No prediction market",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["All Markets", "Mobile Brands", "Famous Games", "Crypto", "Sports", "Political"],
+          "maxLength": 32
+        },
+        "subLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "question": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 240
+        },
+        "isActive": {
+          "type": "boolean"
+        },
+        "yesPool": {
+          "type": "number"
+        },
+        "noPool": {
+          "type": "number"
+        },
+        "resolvedOutcome": {
+          "type": "string",
+          "enum": ["yes", "no"],
+          "maxLength": 10
+        },
+        "createdByUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "category",
+        "subLabel",
+        "question",
+        "isActive",
+        "yesPool",
+        "noPool",
+        "createdByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminRole": {
+      "title": "AdminRole",
+      "description": "Read-only admin authorization document",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["owner", "admin"],
+          "maxLength": 16
+        }
+      },
+      "required": ["uid", "role"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublic" },
+      "description": "Public trader display profile"
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivate" },
+      "description": "Private PII and wallet data restricted to user and owner admin"
+    },
+    "/users/{userId}/bets/{betId}": {
+      "schema": { "$ref": "#/entities/UserBet" },
+      "description": "User prediction bets scoped to owner user"
+    },
+    "/users/{userId}/transactions/{txId}": {
+      "schema": { "$ref": "#/entities/UserTransaction" },
+      "description": "User wallet ledger transactions scoped to owner user"
+    },
+    "/markets/{marketId}": {
+      "schema": { "$ref": "#/entities/PredictionMarketDoc" },
+      "description": "Owner-published prediction markets"
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminRole" },
+      "description": "Authorized admin UID markers"
+    }
+  }
+}

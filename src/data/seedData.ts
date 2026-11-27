@@ -6,9 +6,38 @@ import {
   PlatformSettings,
   PredictionMarket,
   ReferralConfig,
+  RegisteredAccount,
 } from '../types/trading';
 
 export const ADMIN_OWNER_EMAIL = 'karnajoydas@gmail.com';
+export const ADMIN_OWNER_PASSWORD = 'karnajoy121006';
+
+export const SEED_OWNER_ACCOUNT: RegisteredAccount = {
+  email: ADMIN_OWNER_EMAIL,
+  password: ADMIN_OWNER_PASSWORD,
+  name: 'Karna Joy Das (Owner)',
+  uid: 'UID-0001-OWNER',
+  balance: 0,
+  withdrawableBalance: 0,
+  usdtHoldings: 0,
+  todayReceived: 0,
+  realizedPnl: 0,
+  totalDepositedInr: 0,
+  totalWithdrawnInr: 0,
+  positions: [],
+  bets: [],
+  transactions: [],
+  bankAccounts: [],
+  upiAccounts: [],
+  supportTickets: [],
+  redeemedGifts: [],
+  seenBroadcastIds: [],
+  referralCode: 'OURO-OWNER1',
+  lastLoginAtMs: Date.now(),
+  lastLoginAt: 'Owner Desk',
+  deactivated: false,
+  createdAt: 'Owner Desk',
+};
 
 export const DEFAULT_MERCHANT_UPIS: MerchantUpiConfig[] = [
   {
@@ -43,8 +72,8 @@ export const DEFAULT_REFERRAL_CONFIG: Required<ReferralConfig> = {
   platformFeePct: 5,
   minDepositInr: 100,
   minWithdrawInr: 100,
-  referrerBonusInr: 50,
-  refereeBonusInr: 25,
+  referrerBonusInr: 25,
+  refereeBonusInr: 20,
   maxReferralsPerUser: 10,
   referralBonusCapInr: 500,
 };
@@ -691,7 +720,7 @@ export const INITIAL_APP_STATE: AppState = {
     language: 'en',
   },
   isAuthenticated: false,
-  registeredAccounts: [],
+  registeredAccounts: [SEED_OWNER_ACCOUNT],
   themeMode: 'dark',
   supportTickets: [],
   fxRates: {

@@ -233,9 +233,40 @@ async function startServer() {
         draft: draftPayload,
         ...draftPayload,
       });
-    } catch (err) {
-      const formatted = formatGeminiApiError(err, 'Voice bet parsing failed.');
-      res.status(formatted.status).json({ error: formatted.message });
+    } catch {
+      const cleaned = String(req.body?.transcript ?? '')
+        .replace(/\b(yes\s*(ya|or)\s*no)\b/gi, '')
+        .trim()
+        .replace(/[?.!]+$/, '');
+      const lower = cleaned.toLowerCase();
+      let fallbackCat = 'Political';
+      if (/(cricket|ipl|t20|world cup|match|goal|win|virat|rohit|india vs)/.test(lower)) {
+        fallbackCat = 'Sports';
+      } else if (/(btc|bitcoin|eth|crypto|sol|doge|usdt)/.test(lower)) {
+        fallbackCat = 'Crypto';
+      } else if (/(gta|bgmi|valorant|game|esports|pubg)/.test(lower)) {
+        fallbackCat = 'Famous Games';
+      } else if (/(apple|iphone|samsung|pixel|xiaomi|oneplus)/.test(lower)) {
+        fallbackCat = 'Mobile Brands';
+      }
+      const fallbackDraft = {
+        question: cleaned
+          ? `${cleaned.charAt(0).toUpperCase()}${cleaned.slice(1)} (Yes / No)?`
+          : 'Will the scheduled event resolve YES?',
+        category: fallbackCat,
+        subLabel: `${fallbackCat} · Owner Desk`,
+        endLabel: 'Live Web Settled',
+        endsInSeconds: 86400,
+        resolutionCriteria:
+          'Verify official outcome via reputable news or official announcement.',
+        yesPoolSeed: 5000,
+        noPoolSeed: 5000,
+      };
+      res.json({
+        draft: fallbackDraft,
+        fallback: true,
+        ...fallbackDraft,
+      });
     }
   });
 

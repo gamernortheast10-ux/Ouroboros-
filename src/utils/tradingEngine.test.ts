@@ -1,14 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADMIN_OWNER_EMAIL, INITIAL_APP_STATE } from '../data/seedData';
+import {
+  ADMIN_OWNER_EMAIL,
+  ADMIN_OWNER_PASSWORD,
+  INITIAL_APP_STATE,
+} from '../data/seedData';
 import {
   DEFAULT_FX_RATES,
+  INACTIVITY_DEACTIVATION_MS,
   PLAYER_LEVELS,
   adminApproveWithdrawal,
   adminRejectAndRefundWithdrawal,
   adminRejectDeposit,
+  adminToggleDeactivateAccount,
   adminVerifyAndCreditDeposit,
   applyGameWalletTransaction,
+  applyReferralBonusOnSignup,
   applyReferralRewardOnFirstBet,
   applyTopUp,
   applyWithdraw,
@@ -28,17 +35,24 @@ import {
   consumePendingTransferForUser,
   convertCurrency,
   createOwnerPredictionMarket,
+  enforce60DayInactivityDeactivation,
+  ensureOwnerAdminAccount,
   executeTradeOrder,
   findWalletRecipientByUid,
   formatCurrency,
   generateReferralCode,
+  getAccountInactiveDays,
   getActiveMerchantUpis,
   getDayKey,
+  getEffectiveReferralConfig,
   getHorizonDurationSeconds,
   getHorizonLeverage,
   getPrimaryMerchantUpi,
   hasVerifiedDeposit,
+  isAccountInactive60Days,
   isOwnerAdmin,
+  mergeCloudUsersIntoAccounts,
+  parseVoiceCommandLocally,
   parseWalletQrOrProfileInput,
   placePredictionBet,
   redeemGiftCode,
@@ -51,6 +65,7 @@ import {
   validateTradeStake,
   validateUpiId,
   validateUtr12Digits,
+  verifyOwnerAdminLogin,
 } from './tradingEngine';
 import { AppState } from '../types/trading';
 import {
@@ -1169,11 +1184,24 @@ test('applyGameWalletTransaction connects game stakes, payouts, refunds, idempot
   assert.equal(blocked.ok, false);
 });
 
-test('capped referral system validates codes, prevents self-referral, pays once on first bet, and enforces lifetime caps', () => {
+test('capped referral system validates codes, prevents self-referral, pays ₹20/₹25 once on signup, and enforces caps', () => {
   const codeA = generateReferralCode('alpha@test.in', []);
   const codeB = generateReferralCode('alpha@test.in', [codeA]);
   assert.equal(codeA.startsWith('OURO-'), true);
   assert.notEqual(codeA, codeB);
+
+  // Strict cap: never pay above ₹25 referrer / ₹20 new user even if config was overridden higher
+  const clampedCfg = getEffectiveReferralConfig({
+    referralConfig: {
+      platformFeePct: 5,
+      minDepositInr: 100,
+      minWithdrawInr: 100,
+      referrerBonusInr: 100,
+      refereeBonusInr: 90,
+    },
+  });
+  assert.equal(clampedCfg.referrerBonusInr, 25);
+  assert.equal(clampedCfg.refereeBonusInr, 20);
 
   const accounts = [
     {
@@ -1197,7 +1225,7 @@ test('capped referral system validates codes, prevents self-referral, pays once 
       referralCode: 'OURO-REF2',
       referredByCode: 'OURO-REF1',
       referralRewardSettled: false,
-      balance: 200,
+      balance: 0,
       withdrawableBalance: 0,
       todayReceived: 0,
       transactions: [],
@@ -1209,10 +1237,10 @@ test('capped referral system validates codes, prevents self-referral, pays once 
   const valid = validateAndResolveReferralCode(accounts, 'ouro-ref1', 'referee@test.in');
   assert.equal(valid.ok, true);
 
-  // First real game bet triggers one-time ₹25 referee + ₹50 referrer bonus
+  // Signup with referral code immediately credits ₹20 play-only to referee and ₹25 to referrer
   const refState: AppState = {
     ...INITIAL_APP_STATE,
-    balance: 200,
+    balance: 0,
     withdrawableBalance: 0,
     todayReceived: 0,
     profile: {
@@ -1226,45 +1254,39 @@ test('capped referral system validates codes, prevents self-referral, pays once 
     registeredAccounts: accounts,
   };
 
-  const firstBet = applyGameWalletTransaction(refState, {
+  const signupBonus = applyReferralBonusOnSignup(refState, 1000);
+  assert.equal(signupBonus.awarded, true);
+  assert.equal(signupBonus.refereeBonus, 20);
+  assert.equal(signupBonus.referrerBonus, 25);
+  assert.equal(signupBonus.nextState.balance, 20);
+  assert.equal(signupBonus.nextState.withdrawableBalance, 0);
+
+  const updatedReferrer = signupBonus.nextState.registeredAccounts?.find((a) => a.email === 'referrer@test.in');
+  const updatedReferee = signupBonus.nextState.registeredAccounts?.find((a) => a.email === 'referee@test.in');
+  assert.equal(updatedReferrer?.balance, 1025);
+  assert.equal(updatedReferrer?.rewardedReferralsCount, 1);
+  assert.equal(updatedReferrer?.referralEarnedInr, 25);
+  assert.equal(updatedReferee?.referralRewardSettled, true);
+
+  // New user can immediately play using the ₹20 bonus; NO double-credit on first bet
+  const firstBet = applyGameWalletTransaction(signupBonus.nextState, {
     txId: 'gtx-ref-first-1',
     gameId: 'stairs',
     gameTitle: 'Stairs',
     kind: 'bet',
-    amountInr: 50,
+    amountInr: 20,
   });
   assert.equal(firstBet.ok, true);
   if (!firstBet.ok) return;
+  assert.equal(firstBet.nextState.balance, 0);
+  const referrerAfterBet = firstBet.nextState.registeredAccounts?.find((a) => a.email === 'referrer@test.in');
+  assert.equal(referrerAfterBet?.balance, 1025);
+  assert.equal(referrerAfterBet?.rewardedReferralsCount, 1);
 
-  // Balance: 200 - 50 + 25 = 175 (referee bonus credited once, play-locked)
-  assert.equal(firstBet.nextState.balance, 175);
-  assert.equal(firstBet.nextState.withdrawableBalance, 0);
-  const updatedReferrer = firstBet.nextState.registeredAccounts?.find((a) => a.email === 'referrer@test.in');
-  const updatedReferee = firstBet.nextState.registeredAccounts?.find((a) => a.email === 'referee@test.in');
-  assert.equal(updatedReferrer?.balance, 1050);
-  assert.equal(updatedReferrer?.rewardedReferralsCount, 1);
-  assert.equal(updatedReferrer?.referralEarnedInr, 50);
-  assert.equal(updatedReferee?.referralRewardSettled, true);
-
-  // Second bet MUST NOT double-credit referral bonuses
-  const secondBet = applyGameWalletTransaction(firstBet.nextState, {
-    txId: 'gtx-ref-second-1',
-    gameId: 'stairs',
-    gameTitle: 'Stairs',
-    kind: 'bet',
-    amountInr: 50,
-  });
-  assert.equal(secondBet.ok, true);
-  if (!secondBet.ok) return;
-  assert.equal(secondBet.nextState.balance, 125);
-  const referrerAfterSecond = secondBet.nextState.registeredAccounts?.find((a) => a.email === 'referrer@test.in');
-  assert.equal(referrerAfterSecond?.balance, 1050);
-  assert.equal(referrerAfterSecond?.rewardedReferralsCount, 1);
-
-  // Lifetime bonus cap (₹500 / 10 referrals) blocks further payouts once reached
+  // Lifetime bonus cap (₹500 / 10 referrals) blocks further referrer payouts once reached
   const cappedState: AppState = {
     ...INITIAL_APP_STATE,
-    balance: 200,
+    balance: 0,
     withdrawableBalance: 0,
     profile: {
       ...INITIAL_APP_STATE.profile,
@@ -1292,15 +1314,15 @@ test('capped referral system validates codes, prevents self-referral, pays once 
         uid: 'UID-LATE',
         referredByCode: 'OURO-REF1',
         referralRewardSettled: false,
-        balance: 200,
+        balance: 0,
         transactions: [],
       },
     ],
   };
 
-  const settledCapped = applyReferralRewardOnFirstBet(cappedState, 5000);
+  const settledCapped = applyReferralBonusOnSignup(cappedState, 5000);
   assert.equal(settledCapped.referrerBonus, 0);
-  assert.equal(settledCapped.refereeBonus, 25);
+  assert.equal(settledCapped.refereeBonus, 20);
   const cappedReferrer = settledCapped.nextState.registeredAccounts?.find((a) => a.email === 'referrer@test.in');
   assert.equal(cappedReferrer?.balance, 1500);
   assert.equal(cappedReferrer?.referralEarnedInr, 500);
@@ -1705,7 +1727,213 @@ test('transferWalletByProfileId credits recipient, debits sender, preserves bonu
   assert.equal(unknown.ok, false);
 });
 
+test('Owner Admin account is pre-seeded, locked to karnajoy121006, and passes verifyOwnerAdminLogin exclusively', () => {
+  const seeded = ensureOwnerAdminAccount(INITIAL_APP_STATE.registeredAccounts);
+  const owner = seeded.find((a) => isOwnerAdmin(a.email));
+  assert.ok(owner);
+  assert.equal(owner.email, ADMIN_OWNER_EMAIL);
+  assert.equal(owner.password, ADMIN_OWNER_PASSWORD);
 
+  const healed = ensureOwnerAdminAccount([
+    {
+      ...owner,
+      password: 'tampered-password',
+      banned: true,
+      frozen: true,
+    },
+  ]);
+  const healedOwner = healed.find((a) => isOwnerAdmin(a.email));
+  assert.equal(healedOwner?.password, ADMIN_OWNER_PASSWORD);
+  assert.equal(healedOwner?.banned, false);
+  assert.equal(healedOwner?.frozen, false);
 
+  assert.equal(verifyOwnerAdminLogin('karnajoydas@gmail.com', 'karnajoy121006'), true);
+  assert.equal(verifyOwnerAdminLogin('  KarnaJoyDas@gmail.com ', 'karnajoy121006'), true);
+  assert.equal(verifyOwnerAdminLogin('karnajoydas@gmail.com', 'wrongpass'), false);
+  assert.equal(verifyOwnerAdminLogin('other@gmail.com', 'karnajoy121006'), false);
+
+  const ownerPwdAttempt = changeAccountPassword(
+    {
+      ...TEST_FUNDED_STATE,
+      isAuthenticated: true,
+      registeredAccounts: healed,
+      profile: {
+        ...TEST_FUNDED_STATE.profile,
+        email: ADMIN_OWNER_EMAIL,
+      },
+    },
+    { currentPassword: ADMIN_OWNER_PASSWORD, newPassword: 'newpassword123' }
+  );
+  assert.equal(ownerPwdAttempt.ok, false);
+});
+
+test('parseVoiceCommandLocally structures Hindi/Hinglish/English commands for static Admin hosting', () => {
+  const pmDraft = parseVoiceCommandLocally(
+    'Agle election mein kaun PM banega Amit Shah yes ya no'
+  );
+  assert.equal(pmDraft.category, 'Political');
+  assert.match(pmDraft.question, /Amit Shah/i);
+  assert.equal(pmDraft.question.endsWith('?'), true);
+
+  const cryptoDraft = parseVoiceCommandLocally('Will BTC cross 100k in 1 hour yes or no');
+  assert.equal(cryptoDraft.category, 'Crypto');
+  assert.equal(cryptoDraft.endsInSeconds, 3600);
+});
+
+test('60-day inactivity auto-deactivates users, spares Owner Admin, and supports Admin Activate', () => {
+  const nowMs = 1_800_000_000_000;
+  const dayMs = 24 * 60 * 60 * 1000;
+  assert.equal(INACTIVITY_DEACTIVATION_MS, 60 * dayMs);
+
+  const accounts = ensureOwnerAdminAccount([
+    {
+      email: 'active59@test.in',
+      password: 'pw',
+      name: 'Active 59d',
+      uid: 'UID-59D',
+      lastLoginAtMs: nowMs - 59 * dayMs,
+      deactivated: false,
+    },
+    {
+      email: 'idle60@test.in',
+      password: 'pw',
+      name: 'Idle 60d',
+      uid: 'UID-60D',
+      lastLoginAtMs: nowMs - 60 * dayMs,
+      deactivated: false,
+    },
+  ]).map((acc) =>
+    isOwnerAdmin(acc.email)
+      ? { ...acc, lastLoginAtMs: nowMs - 120 * dayMs }
+      : acc
+  );
+
+  const enforced = enforce60DayInactivityDeactivation(accounts, nowMs);
+  assert.equal(enforced.changed, true);
+  assert.deepEqual(enforced.deactivatedEmails, ['idle60@test.in']);
+
+  const active59 = enforced.accounts.find((a) => a.email === 'active59@test.in');
+  const idle60 = enforced.accounts.find((a) => a.email === 'idle60@test.in');
+  const owner = enforced.accounts.find((a) => isOwnerAdmin(a.email));
+
+  assert.equal(active59?.deactivated, false);
+  assert.equal(isAccountInactive60Days(active59!, nowMs), false);
+  assert.equal(getAccountInactiveDays(active59!, nowMs), 59);
+
+  assert.equal(idle60?.deactivated, true);
+  assert.equal(idle60?.deactivatedBy, 'inactivity_60d');
+  assert.equal(isAccountInactive60Days(idle60!, nowMs), true);
+
+  assert.equal(owner?.deactivated, false);
+  assert.equal(isAccountInactive60Days(owner!, nowMs), false);
+
+  const stateWithEnforced: AppState = {
+    ...INITIAL_APP_STATE,
+    registeredAccounts: enforced.accounts,
+  };
+  const summary = computeAdminPlatformSummary(stateWithEnforced, nowMs);
+  assert.equal(summary.deactivatedUsersCount, 1);
+  assert.equal(summary.activeUsersCount, 2); // owner + active59
+
+  // Admin manually activates idle60 -> deactivated cleared & lastLoginAtMs reset
+  const activatedState = adminToggleDeactivateAccount(
+    stateWithEnforced,
+    'idle60@test.in',
+    false,
+    '',
+    nowMs
+  );
+  const reactivated = activatedState.registeredAccounts?.find(
+    (a) => a.email === 'idle60@test.in'
+  );
+  assert.equal(reactivated?.deactivated, false);
+  assert.equal(reactivated?.lastLoginAtMs, nowMs);
+  assert.equal(computeAdminPlatformSummary(activatedState, nowMs).deactivatedUsersCount, 0);
+
+  // Admin can manually deactivate active59, and cannot deactivate Owner Admin
+  const deactivatedByAdmin = adminToggleDeactivateAccount(
+    activatedState,
+    'active59@test.in',
+    true,
+    'Manual audit pause',
+    nowMs
+  );
+  const active59Deact = deactivatedByAdmin.registeredAccounts?.find(
+    (a) => a.email === 'active59@test.in'
+  );
+  assert.equal(active59Deact?.deactivated, true);
+  assert.equal(active59Deact?.deactivatedBy, 'admin');
+
+  const ownerAttempt = adminToggleDeactivateAccount(
+    deactivatedByAdmin,
+    ADMIN_OWNER_EMAIL,
+    true,
+    'Should not apply',
+    nowMs
+  );
+  assert.equal(
+    ownerAttempt.registeredAccounts?.find((a) => isOwnerAdmin(a.email))?.deactivated,
+    false
+  );
+});
+
+test('mergeCloudUsersIntoAccounts adds real-time logins and reactivates returning users', () => {
+  const nowMs = 1_800_000_000_000;
+  const dayMs = 24 * 60 * 60 * 1000;
+  const local = [
+    {
+      email: 'old@test.in',
+      password: 'pw',
+      name: 'Old Trader',
+      uid: 'UID-OLD',
+      lastLoginAtMs: nowMs - 75 * dayMs,
+      deactivated: true,
+      deactivatedBy: 'inactivity_60d' as const,
+      deactivatedReason: 'Inactive for 60+ days',
+    },
+  ];
+
+  const merged = mergeCloudUsersIntoAccounts(
+    local,
+    [
+      {
+        firebaseUid: 'fb-old',
+        appUid: 'UID-OLD',
+        email: 'old@test.in',
+        name: 'Old Trader',
+        balance: 0,
+        withdrawableBalance: 0,
+        realizedPnl: 0,
+        referralCode: 'OURO-OLD1',
+        lastLoginAtMs: nowMs,
+        deactivated: false,
+      },
+      {
+        firebaseUid: 'fb-new',
+        appUid: 'UID-NEW1',
+        email: 'newlogin@test.in',
+        name: 'Live Google User',
+        balance: 20,
+        withdrawableBalance: 0,
+        realizedPnl: 0,
+        referralCode: 'OURO-NEW1',
+        lastLoginAtMs: nowMs,
+        deactivated: false,
+      },
+    ],
+    nowMs
+  );
+
+  const oldReactivated = merged.find((a) => a.email === 'old@test.in');
+  const brandNew = merged.find((a) => a.email === 'newlogin@test.in');
+
+  assert.equal(oldReactivated?.deactivated, false);
+  assert.equal(oldReactivated?.lastLoginAtMs, nowMs);
+  assert.equal(oldReactivated?.firebaseUid, 'fb-old');
+  assert.ok(brandNew);
+  assert.equal(brandNew.uid, 'UID-NEW1');
+  assert.equal(brandNew.balance, 20);
+  assert.equal(brandNew.deactivated, false);
+});
 
 

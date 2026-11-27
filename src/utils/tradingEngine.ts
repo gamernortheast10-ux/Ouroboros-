@@ -1,8 +1,10 @@
 import {
   ADMIN_OWNER_EMAIL,
+  ADMIN_OWNER_PASSWORD,
   DEFAULT_MERCHANT_UPIS,
   DEFAULT_PLATFORM_SETTINGS,
   DEFAULT_REFERRAL_CONFIG,
+  SEED_OWNER_ACCOUNT,
 } from '../data/seedData';
 import {
   ActiveBet,
@@ -1663,6 +1665,40 @@ export function isOwnerAdmin(email?: string): boolean {
   return email.trim().toLowerCase() === ADMIN_OWNER_EMAIL;
 }
 
+export function verifyOwnerAdminLogin(email?: string, password?: string): boolean {
+  return isOwnerAdmin(email) && password === ADMIN_OWNER_PASSWORD;
+}
+
+export function ensureOwnerAdminAccount(
+  accounts: RegisteredAccount[] = []
+): RegisteredAccount[] {
+  const existingIdx = accounts.findIndex((a) => isOwnerAdmin(a.email));
+  if (existingIdx < 0) {
+    return [{ ...SEED_OWNER_ACCOUNT }, ...accounts];
+  }
+  return accounts.map((acc, idx) =>
+    idx === existingIdx
+      ? {
+          ...SEED_OWNER_ACCOUNT,
+          ...acc,
+          email: ADMIN_OWNER_EMAIL,
+          password: ADMIN_OWNER_PASSWORD,
+          frozen: false,
+          freezeReason: undefined,
+          banned: false,
+          banReason: undefined,
+          deactivated: false,
+          deactivatedAtMs: undefined,
+          deactivatedReason: undefined,
+          deactivatedBy: undefined,
+          withdrawalsBlocked: false,
+          tradingBlocked: false,
+          lastLoginAtMs: acc.lastLoginAtMs ?? Date.now(),
+        }
+      : acc
+  );
+}
+
 export function getEffectiveReferralConfig(
   state?: Pick<AppState, 'referralConfig'>
 ): Required<ReferralConfig> {
@@ -1680,13 +1716,19 @@ export function getEffectiveReferralConfig(
       10,
       Number(raw?.minWithdrawInr ?? DEFAULT_REFERRAL_CONFIG.minWithdrawInr)
     ),
-    referrerBonusInr: Math.max(
-      0,
-      Number(raw?.referrerBonusInr ?? DEFAULT_REFERRAL_CONFIG.referrerBonusInr)
+    referrerBonusInr: Math.min(
+      25,
+      Math.max(
+        0,
+        Number(raw?.referrerBonusInr ?? DEFAULT_REFERRAL_CONFIG.referrerBonusInr)
+      )
     ),
-    refereeBonusInr: Math.max(
-      0,
-      Number(raw?.refereeBonusInr ?? DEFAULT_REFERRAL_CONFIG.refereeBonusInr)
+    refereeBonusInr: Math.min(
+      20,
+      Math.max(
+        0,
+        Number(raw?.refereeBonusInr ?? DEFAULT_REFERRAL_CONFIG.refereeBonusInr)
+      )
     ),
     maxReferralsPerUser: Math.max(
       1,
@@ -1812,7 +1854,7 @@ export function applyReferralRewardOnFirstBet(
   const referrerAcc = accounts[referrerIdx];
   const cfg = getEffectiveReferralConfig(state);
   const stamp = formatExactDateTime(nowMs);
-  const refereeBonus = roundMoney(Math.max(0, cfg.refereeBonusInr));
+  const refereeBonus = roundMoney(Math.min(20, Math.max(0, cfg.refereeBonusInr)));
 
   const currentRefCount = Math.max(0, referrerAcc.rewardedReferralsCount ?? 0);
   const currentRefEarned = Math.max(0, referrerAcc.referralEarnedInr ?? 0);
@@ -1820,7 +1862,7 @@ export function applyReferralRewardOnFirstBet(
   const underCountCap = currentRefCount < cfg.maxReferralsPerUser;
   const referrerBonus =
     underCountCap && remainingCap > 0
-      ? roundMoney(Math.min(cfg.referrerBonusInr, remainingCap))
+      ? roundMoney(Math.min(25, cfg.referrerBonusInr, remainingCap))
       : 0;
 
   const refereeTx: WalletTransaction | null =
@@ -1828,11 +1870,11 @@ export function applyReferralRewardOnFirstBet(
       ? {
           id: `tx-ref-ee-${nowMs}-${Math.random().toString(36).slice(2, 6)}`,
           type: 'referral_bonus',
-          title: 'Referral Welcome Bonus',
+          title: 'Referral Welcome Play Bonus',
           amount: refereeBonus,
           timestamp: stamp,
           status: 'Credited',
-          meta: `First-bet bonus · Code ${refCode}`,
+          meta: `Play-only ₹${refereeBonus} bonus · Code ${refCode}`,
           createdAtMs: nowMs,
           credited: true,
           userEmail: refereeAcc.email,
@@ -1846,7 +1888,7 @@ export function applyReferralRewardOnFirstBet(
       ? {
           id: `tx-ref-er-${nowMs}-${Math.random().toString(36).slice(2, 6)}`,
           type: 'referral_bonus',
-          title: `Invite Reward · ${refereeAcc.name || cleanEmail}`,
+          title: `Invite Share Reward · ${refereeAcc.name || cleanEmail}`,
           amount: referrerBonus,
           timestamp: stamp,
           status: 'Credited',
@@ -1911,6 +1953,18 @@ export function applyReferralRewardOnFirstBet(
     refereeBonus,
     referrerBonus,
   };
+}
+
+export function applyReferralBonusOnSignup(
+  state: AppState,
+  nowMs = Date.now()
+): {
+  nextState: AppState;
+  awarded: boolean;
+  refereeBonus: number;
+  referrerBonus: number;
+} {
+  return applyReferralRewardOnFirstBet(state, nowMs);
 }
 
 function roundMoney(n: number): number {
@@ -2276,11 +2330,15 @@ export interface AdminPlatformSummary {
   totalUserWalletHoldingsInr: number;
   totalUsersCount: number;
   activeUsersCount: number;
+  deactivatedUsersCount: number;
   frozenUsersCount: number;
   bannedUsersCount: number;
 }
 
-export function computeAdminPlatformSummary(state: AppState): AdminPlatformSummary {
+export function computeAdminPlatformSummary(
+  state: AppState,
+  nowMs = Date.now()
+): AdminPlatformSummary {
   const txMap = new Map<string, WalletTransaction>();
   for (const tx of state.platformTransactions ?? []) {
     txMap.set(tx.id, tx);
@@ -2323,6 +2381,7 @@ export function computeAdminPlatformSummary(state: AppState): AdminPlatformSumma
   const activeEmail = state.profile.email.trim().toLowerCase();
   let totalUserWalletHoldingsInr = 0;
   let activeUsersCount = 0;
+  let deactivatedUsersCount = 0;
   let frozenUsersCount = 0;
   let bannedUsersCount = 0;
 
@@ -2331,8 +2390,12 @@ export function computeAdminPlatformSummary(state: AppState): AdminPlatformSumma
       Boolean(state.isAuthenticated) &&
       acc.email.trim().toLowerCase() === activeEmail;
     totalUserWalletHoldingsInr += isCurr ? state.balance : acc.balance ?? 0;
+    const isInactiveDeactivated =
+      !isOwnerAdmin(acc.email) &&
+      (Boolean(acc.deactivated) || isAccountInactive60Days(acc, nowMs));
     if (acc.banned) bannedUsersCount += 1;
     else if (acc.frozen) frozenUsersCount += 1;
+    else if (isInactiveDeactivated) deactivatedUsersCount += 1;
     else activeUsersCount += 1;
   }
 
@@ -2350,6 +2413,7 @@ export function computeAdminPlatformSummary(state: AppState): AdminPlatformSumma
     totalUserWalletHoldingsInr: roundMoney(totalUserWalletHoldingsInr),
     totalUsersCount: accounts.length,
     activeUsersCount,
+    deactivatedUsersCount,
     frozenUsersCount,
     bannedUsersCount,
   };
@@ -2687,6 +2751,12 @@ export function changeAccountPassword(
     return { ok: false, error: 'You must be signed in to change your password.' };
   }
   const cleanEmail = state.profile.email.trim().toLowerCase();
+  if (isOwnerAdmin(cleanEmail)) {
+    return {
+      ok: false,
+      error: 'Owner Admin login credentials are locked for security.',
+    };
+  }
   const accounts = state.registeredAccounts ?? [];
   const target = accounts.find((a) => a.email.trim().toLowerCase() === cleanEmail);
   if (!target) {
@@ -2822,13 +2892,111 @@ export function buildTopTradersLeaderboard(
 
 export interface OwnerPredictionDraft {
   question: string;
-  category: Exclude<PredictionMarket['category'], never>;
+  category: PredictionMarket['category'];
   subLabel: string;
   endLabel: string;
   endsInSeconds: number;
   resolutionCriteria?: string;
   yesPoolSeed?: number;
   noPoolSeed?: number;
+}
+
+export function parseVoiceCommandLocally(transcript: string): OwnerPredictionDraft {
+  const raw = transcript.trim().replace(/\s+/g, ' ');
+  const lower = raw.toLowerCase();
+
+  let category: PredictionMarket['category'] = 'Political';
+  let subLabel = 'Owner Desk · India';
+
+  if (
+    /\b(btc|eth|sol|doge|xrp|bnb|ada|crypto|bitcoin|ethereum|solana|coin|usdt|token)\b/i.test(
+      lower
+    )
+  ) {
+    category = 'Crypto';
+    subLabel = 'Crypto Live Desk';
+  } else if (
+    /\b(cricket|ipl|match|india|kohli|rohit|bumrah|t20|odi|world cup|football|goal|valorant|esports|winner|trophy)\b/i.test(
+      lower
+    )
+  ) {
+    category = 'Sports';
+    subLabel = 'Sports & Cricket';
+  } else if (
+    /\b(gta|bgmi|free fire|aviator|game|gaming|launch|console|pubg|minecraft)\b/i.test(
+      lower
+    )
+  ) {
+    category = 'Famous Games';
+    subLabel = 'Famous Games';
+  } else if (
+    /\b(apple|iphone|samsung|xiaomi|oneplus|pixel|nothing|mobile|phone|smartphone)\b/i.test(
+      lower
+    )
+  ) {
+    category = 'Mobile Brands';
+    subLabel = 'Mobile Brands';
+  } else if (
+    /\b(pm|pradhanmantri|prime minister|election|chunav|bjp|congress|modi|amit shah|rahul|rbi|policy|parliament|govt|minister)\b/i.test(
+      lower
+    )
+  ) {
+    category = 'Political';
+    subLabel = 'India Elections & Policy';
+  }
+
+  // Extract timeframe hints if spoken
+  let endsInSeconds = 86400;
+  let endLabel = 'Ends in 24h';
+  if (/\b(1\s*hour|1h|ek ghanta|one hour)\b/i.test(lower)) {
+    endsInSeconds = 3600;
+    endLabel = 'Ends in 1h';
+  } else if (/\b(7\s*days|7d|week|hafte|next week|election)\b/i.test(lower)) {
+    endsInSeconds = 604800;
+    endLabel = 'Ends in 7d';
+  } else if (/\b(today|aaj|tonight|raat)\b/i.test(lower)) {
+    endsInSeconds = 43200;
+    endLabel = 'Today Result';
+  }
+
+  // Strip trailing "yes ya no" / "yes or no" / "haan ya naa" filler for clean question text
+  const stripped = raw
+    .replace(/\b(yes\s*(ya|or|\/)\s*no|haan\s*(ya|or)\s*naa?)\b[.?!,\s]*/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const baseText = stripped || raw;
+  let question = baseText;
+
+  // Smartly rewrite popular Hindi/Hinglish election/PM pattern into crisp Yes/No English/Hinglish question
+  if (
+    /pradhanmantri|prime minister|\bpm\b/i.test(lower) &&
+    /(amit shah|narendra modi|modi|rahul gandhi|yogi)/i.test(lower)
+  ) {
+    const candidateMatch = baseText.match(
+      /(amit shah|narendra modi|modi|rahul gandhi|yogi adityanath|yogi)/i
+    );
+    const candidate = candidateMatch
+      ? candidateMatch[1].replace(/\b\w/g, (c) => c.toUpperCase())
+      : 'the named candidate';
+    question = `Will ${candidate} become the next Prime Minister in the upcoming election?`;
+  } else {
+    const capitalized =
+      baseText.charAt(0).toUpperCase() + baseText.slice(1);
+    question = capitalized.endsWith('?') ? capitalized : `${capitalized} (Yes / No)?`;
+  }
+
+  return {
+    question,
+    category,
+    subLabel,
+    endLabel,
+    endsInSeconds,
+    resolutionCriteria:
+      'Settle based on verified official announcement or authoritative news reports.',
+    yesPoolSeed: 5000,
+    noPoolSeed: 5000,
+  };
 }
 
 export function createOwnerPredictionMarket(
@@ -3450,6 +3618,274 @@ export function transferWalletByProfileId(
       registeredAccounts: nextRegistered,
     },
   };
+}
+
+export const INACTIVITY_DEACTIVATION_DAYS = 60;
+export const INACTIVITY_DEACTIVATION_MS =
+  INACTIVITY_DEACTIVATION_DAYS * 24 * 60 * 60 * 1000;
+
+export function getAccountInactiveDays(
+  acc: Pick<RegisteredAccount, 'lastLoginAtMs' | 'createdAt'>,
+  nowMs = Date.now()
+): number {
+  const refMs =
+    typeof acc.lastLoginAtMs === 'number' && Number.isFinite(acc.lastLoginAtMs)
+      ? acc.lastLoginAtMs
+      : acc.createdAt && Number.isFinite(Date.parse(acc.createdAt))
+      ? Date.parse(acc.createdAt)
+      : nowMs;
+  if (nowMs <= refMs) return 0;
+  return Math.floor((nowMs - refMs) / (24 * 60 * 60 * 1000));
+}
+
+export function isAccountInactive60Days(
+  acc: Pick<RegisteredAccount, 'email' | 'lastLoginAtMs' | 'createdAt'>,
+  nowMs = Date.now()
+): boolean {
+  if (isOwnerAdmin(acc.email)) return false;
+  if (
+    typeof acc.lastLoginAtMs !== 'number' ||
+    !Number.isFinite(acc.lastLoginAtMs)
+  ) {
+    return false;
+  }
+  return nowMs - acc.lastLoginAtMs >= INACTIVITY_DEACTIVATION_MS;
+}
+
+export function enforce60DayInactivityDeactivation(
+  accounts: RegisteredAccount[] = [],
+  nowMs = Date.now()
+): {
+  accounts: RegisteredAccount[];
+  changed: boolean;
+  deactivatedEmails: string[];
+} {
+  let changed = false;
+  const deactivatedEmails: string[] = [];
+
+  const nextAccounts = accounts.map((acc) => {
+    if (isOwnerAdmin(acc.email)) {
+      if (acc.deactivated) {
+        changed = true;
+        return {
+          ...acc,
+          deactivated: false,
+          deactivatedAtMs: undefined,
+          deactivatedReason: undefined,
+          deactivatedBy: undefined,
+        };
+      }
+      return acc;
+    }
+
+    if (
+      !acc.deactivated &&
+      typeof acc.lastLoginAtMs === 'number' &&
+      Number.isFinite(acc.lastLoginAtMs) &&
+      nowMs - acc.lastLoginAtMs >= INACTIVITY_DEACTIVATION_MS
+    ) {
+      changed = true;
+      deactivatedEmails.push(acc.email.trim().toLowerCase());
+      return {
+        ...acc,
+        deactivated: true,
+        deactivatedAtMs: nowMs,
+        deactivatedBy: 'inactivity_60d' as const,
+        deactivatedReason: 'Inactive for 60+ days (auto-deactivated)',
+      };
+    }
+
+    return acc;
+  });
+
+  return { accounts: nextAccounts, changed, deactivatedEmails };
+}
+
+export function adminToggleDeactivateAccount(
+  state: AppState,
+  targetEmail: string,
+  deactivate: boolean,
+  reason = '',
+  nowMs = Date.now()
+): AppState {
+  const cleanTarget = targetEmail.trim().toLowerCase();
+  if (!cleanTarget || isOwnerAdmin(cleanTarget)) return state;
+  const stamp = formatExactDateTime(nowMs);
+
+  return {
+    ...state,
+    registeredAccounts: (state.registeredAccounts ?? []).map((acc) => {
+      if (acc.email.trim().toLowerCase() !== cleanTarget) return acc;
+      if (deactivate) {
+        return {
+          ...acc,
+          deactivated: true,
+          deactivatedAtMs: nowMs,
+          deactivatedBy: 'admin' as const,
+          deactivatedReason:
+            reason.trim() || 'Deactivated from Owner Admin Panel',
+        };
+      }
+      return {
+        ...acc,
+        deactivated: false,
+        deactivatedAtMs: undefined,
+        deactivatedBy: undefined,
+        deactivatedReason: undefined,
+        lastLoginAtMs: nowMs,
+        lastLoginAt: stamp,
+      };
+    }),
+  };
+}
+
+export interface CloudUserDirectoryRecord {
+  firebaseUid: string;
+  appUid?: string;
+  email: string;
+  name: string;
+  phone?: string;
+  balance: number;
+  withdrawableBalance: number;
+  realizedPnl: number;
+  referralCode: string;
+  referredByCode?: string;
+  referralRewardSettled?: boolean;
+  lastLoginAtMs?: number;
+  deactivated?: boolean;
+  deactivatedAtMs?: number;
+  deactivatedReason?: string;
+  deactivatedBy?: 'inactivity_60d' | 'admin';
+  frozen?: boolean;
+  banned?: boolean;
+  withdrawalsBlocked?: boolean;
+  tradingBlocked?: boolean;
+  totalDepositedInr?: number;
+  totalWithdrawnInr?: number;
+}
+
+export function mergeCloudUsersIntoAccounts(
+  localAccounts: RegisteredAccount[] = [],
+  cloudUsers: CloudUserDirectoryRecord[] = [],
+  nowMs = Date.now()
+): RegisteredAccount[] {
+  const byEmail = new Map<string, RegisteredAccount>();
+  for (const acc of localAccounts) {
+    byEmail.set(acc.email.trim().toLowerCase(), acc);
+  }
+
+  for (const cloud of cloudUsers) {
+    const cleanEmail = cloud.email.trim().toLowerCase();
+    if (!cleanEmail) continue;
+    const existing = byEmail.get(cleanEmail);
+    if (existing) {
+      const mergedLastLoginMs =
+        typeof cloud.lastLoginAtMs === 'number' &&
+        (!existing.lastLoginAtMs || cloud.lastLoginAtMs >= existing.lastLoginAtMs)
+          ? cloud.lastLoginAtMs
+          : existing.lastLoginAtMs;
+
+      const cloudNewer =
+        typeof cloud.lastLoginAtMs === 'number' &&
+        (!existing.lastLoginAtMs || cloud.lastLoginAtMs >= existing.lastLoginAtMs);
+
+      const mergedDeactivated = isOwnerAdmin(cleanEmail)
+        ? false
+        : cloudNewer && typeof cloud.deactivated === 'boolean'
+        ? cloud.deactivated
+        : existing.deactivated ?? cloud.deactivated ?? false;
+
+      byEmail.set(cleanEmail, {
+        ...existing,
+        firebaseUid: cloud.firebaseUid || existing.firebaseUid,
+        uid: cloud.appUid || existing.uid,
+        name: cloud.name || existing.name,
+        phone: cloud.phone ?? existing.phone,
+        referralCode: cloud.referralCode || existing.referralCode,
+        referredByCode: cloud.referredByCode ?? existing.referredByCode,
+        lastLoginAtMs: mergedLastLoginMs,
+        lastLoginAt: mergedLastLoginMs
+          ? formatExactDateTime(mergedLastLoginMs)
+          : existing.lastLoginAt,
+        deactivated: mergedDeactivated,
+        deactivatedAtMs: mergedDeactivated
+          ? cloud.deactivatedAtMs ?? existing.deactivatedAtMs
+          : undefined,
+        deactivatedReason: mergedDeactivated
+          ? cloud.deactivatedReason ?? existing.deactivatedReason
+          : undefined,
+        deactivatedBy: mergedDeactivated
+          ? cloud.deactivatedBy ?? existing.deactivatedBy
+          : undefined,
+        frozen:
+          typeof cloud.frozen === 'boolean' ? cloud.frozen : existing.frozen,
+        banned:
+          typeof cloud.banned === 'boolean' ? cloud.banned : existing.banned,
+        withdrawalsBlocked:
+          typeof cloud.withdrawalsBlocked === 'boolean'
+            ? cloud.withdrawalsBlocked
+            : existing.withdrawalsBlocked,
+        tradingBlocked:
+          typeof cloud.tradingBlocked === 'boolean'
+            ? cloud.tradingBlocked
+            : existing.tradingBlocked,
+        totalDepositedInr:
+          typeof cloud.totalDepositedInr === 'number'
+            ? Math.max(existing.totalDepositedInr ?? 0, cloud.totalDepositedInr)
+            : existing.totalDepositedInr,
+        totalWithdrawnInr:
+          typeof cloud.totalWithdrawnInr === 'number'
+            ? Math.max(existing.totalWithdrawnInr ?? 0, cloud.totalWithdrawnInr)
+            : existing.totalWithdrawnInr,
+      });
+    } else {
+      const loginMs =
+        typeof cloud.lastLoginAtMs === 'number' ? cloud.lastLoginAtMs : nowMs;
+      byEmail.set(cleanEmail, {
+        email: cleanEmail,
+        password: '',
+        name: cloud.name || cleanEmail.split('@')[0] || 'Trader',
+        uid:
+          cloud.appUid ||
+          `UID-${cloud.firebaseUid.slice(0, 6).toUpperCase()}`,
+        firebaseUid: cloud.firebaseUid,
+        phone: cloud.phone,
+        balance: Number(cloud.balance) || 0,
+        withdrawableBalance: Number(cloud.withdrawableBalance) || 0,
+        usdtHoldings: 0,
+        todayReceived: 0,
+        realizedPnl: Number(cloud.realizedPnl) || 0,
+        totalDepositedInr: Number(cloud.totalDepositedInr) || 0,
+        totalWithdrawnInr: Number(cloud.totalWithdrawnInr) || 0,
+        positions: [],
+        bets: [],
+        transactions: [],
+        bankAccounts: [],
+        upiAccounts: [],
+        redeemedGifts: [],
+        supportTickets: [],
+        frozen: Boolean(cloud.frozen),
+        banned: Boolean(cloud.banned),
+        withdrawalsBlocked: Boolean(cloud.withdrawalsBlocked),
+        tradingBlocked: Boolean(cloud.tradingBlocked),
+        referralCode: cloud.referralCode || 'OURO-USER1',
+        referredByCode: cloud.referredByCode,
+        referralRewardSettled: Boolean(cloud.referralRewardSettled),
+        lastLoginAtMs: loginMs,
+        lastLoginAt: formatExactDateTime(loginMs),
+        deactivated: Boolean(cloud.deactivated),
+        deactivatedAtMs: cloud.deactivatedAtMs,
+        deactivatedReason: cloud.deactivatedReason,
+        deactivatedBy: cloud.deactivatedBy,
+        createdAt: formatExactDateTime(loginMs),
+      });
+    }
+  }
+
+  return enforce60DayInactivityDeactivation(
+    ensureOwnerAdminAccount(Array.from(byEmail.values())),
+    nowMs
+  ).accounts;
 }
 
 

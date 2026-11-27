@@ -10,6 +10,7 @@ import {
   Newspaper,
   Plus,
   ScanLine,
+  ShieldCheck,
   Trophy,
   User,
   Wallet,
@@ -43,6 +44,7 @@ import {
   WalletScannerTab,
 } from './components/WalletScannerModal';
 import {
+  ADMIN_OWNER_PASSWORD,
   DEFAULT_MERCHANT_UPIS,
   DEFAULT_PLATFORM_SETTINGS,
   DEFAULT_REFERRAL_CONFIG,
@@ -89,8 +91,10 @@ import {
   adminApproveWithdrawal,
   adminRejectAndRefundWithdrawal,
   adminRejectDeposit,
+  adminToggleDeactivateAccount,
   adminVerifyAndCreditDeposit,
   applyGameWalletTransaction,
+  applyReferralBonusOnSignup,
   applyTopUp,
   applyWithdraw,
   GameWalletTxParams,
@@ -99,6 +103,8 @@ import {
   closeTradePosition,
   consumePendingTransferForUser,
   createOwnerPredictionMarket,
+  enforce60DayInactivityDeactivation,
+  ensureOwnerAdminAccount,
   executeTradeOrder,
   formatCurrency,
   formatExactDateTime,
@@ -106,7 +112,9 @@ import {
   getEffectivePlatformSettings,
   getEffectiveReferralConfig,
   hasVerifiedDeposit,
+  isAccountInactive60Days,
   isOwnerAdmin,
+  mergeCloudUsersIntoAccounts,
   placePredictionBet,
   redeemGiftCode,
   sellUsdtToInr,
@@ -116,11 +124,83 @@ import {
   tickMarketPrices,
   transferWalletByProfileId,
   validateAndResolveReferralCode,
+  verifyOwnerAdminLogin,
 } from './utils/tradingEngine';
 import { getAssetUrl } from './utils/assetPath';
+import {
+  signInWithGooglePopup,
+  signOutFirebase,
+  subscribeAllUsersForAdmin,
+  syncAdminUserUpdateToFirestore,
+  syncMarketToFirestore,
+  syncPendingTxToFirestore,
+  testConnection,
+} from './lib/firebase';
 
 const STORAGE_KEY = 'ouroboros_app_state_v1';
 const NOTIF_STORAGE_KEY = 'ouroboros_notifications_v1';
+const REALTIME_CHANNEL_NAME = 'ouroboros_realtime_sync';
+
+function getAccountEventTs(acc: RegisteredAccount): number {
+  return Math.max(acc.lastLoginAtMs ?? 0, acc.deactivatedAtMs ?? 0);
+}
+
+function mergeRealtimeAccounts(
+  current: RegisteredAccount[] = [],
+  incoming: RegisteredAccount[] = [],
+  nowMs = Date.now()
+): RegisteredAccount[] {
+  const byEmail = new Map<string, RegisteredAccount>();
+  for (const acc of current) {
+    byEmail.set(acc.email.trim().toLowerCase(), acc);
+  }
+  for (const inc of incoming) {
+    const cleanEmail = inc.email.trim().toLowerCase();
+    if (!cleanEmail) continue;
+    const prev = byEmail.get(cleanEmail);
+    if (!prev) {
+      byEmail.set(cleanEmail, inc);
+      continue;
+    }
+    const incNewer = getAccountEventTs(inc) >= getAccountEventTs(prev);
+    const chosen = incNewer ? inc : prev;
+    const other = incNewer ? prev : inc;
+    byEmail.set(cleanEmail, {
+      ...other,
+      ...chosen,
+      firebaseUid: chosen.firebaseUid || other.firebaseUid,
+      positions:
+        (chosen.positions?.length ?? 0) >= (other.positions?.length ?? 0)
+          ? chosen.positions
+          : other.positions,
+      transactions:
+        (chosen.transactions?.length ?? 0) >= (other.transactions?.length ?? 0)
+          ? chosen.transactions
+          : other.transactions,
+      supportTickets:
+        (chosen.supportTickets?.length ?? 0) >= (other.supportTickets?.length ?? 0)
+          ? chosen.supportTickets
+          : other.supportTickets,
+    });
+  }
+  return enforce60DayInactivityDeactivation(
+    ensureOwnerAdminAccount(Array.from(byEmail.values())),
+    nowMs
+  ).accounts;
+}
+
+function broadcastAccountsSync(accounts: RegisteredAccount[]): void {
+  if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') {
+    return;
+  }
+  try {
+    const ch = new BroadcastChannel(REALTIME_CHANNEL_NAME);
+    ch.postMessage({ type: 'ACCOUNTS_SYNC', accounts });
+    ch.close();
+  } catch {
+    // Ignore BroadcastChannel unavailability
+  }
+}
 
 function loadInitialState(): AppState {
   const autoStart =
@@ -132,6 +212,7 @@ function loadInitialState(): AppState {
     if (!raw) {
       return {
         ...INITIAL_APP_STATE,
+        registeredAccounts: ensureOwnerAdminAccount(INITIAL_APP_STATE.registeredAccounts),
         isAuthenticated: autoStart
           ? true
           : INITIAL_APP_STATE.isAuthenticated ?? false,
@@ -141,6 +222,7 @@ function loadInitialState(): AppState {
     if (typeof parsed.balance !== 'number' || !Array.isArray(parsed.assets)) {
       return {
         ...INITIAL_APP_STATE,
+        registeredAccounts: ensureOwnerAdminAccount(INITIAL_APP_STATE.registeredAccounts),
         isAuthenticated: autoStart
           ? true
           : INITIAL_APP_STATE.isAuthenticated ?? false,
@@ -157,6 +239,11 @@ function loadInitialState(): AppState {
       : undefined;
     const wasDemoSession =
       storedEmail === 'aarav@ouroboros.trade' && !matchedStoredAcc;
+    const invalidOwnerSession = Boolean(
+      storedEmail &&
+        isOwnerAdmin(storedEmail) &&
+        matchedStoredAcc?.password !== ADMIN_OWNER_PASSWORD
+    );
     const wasRestricted = Boolean(
       matchedStoredAcc &&
         !isOwnerAdmin(matchedStoredAcc.email) &&
@@ -223,6 +310,18 @@ function loadInitialState(): AppState {
       }
     }
 
+    const seededNormalizedAccounts = enforce60DayInactivityDeactivation(
+      ensureOwnerAdminAccount(normalizedAccounts)
+    ).accounts;
+    const matchedSeededAcc = storedEmail
+      ? seededNormalizedAccounts.find((a) => a.email.trim().toLowerCase() === storedEmail)
+      : undefined;
+    const wasDeactivatedSession = Boolean(
+      matchedSeededAcc &&
+        !isOwnerAdmin(matchedSeededAcc.email) &&
+        matchedSeededAcc.deactivated
+    );
+
     return {
       ...INITIAL_APP_STATE,
       ...parsed,
@@ -233,15 +332,16 @@ function loadInitialState(): AppState {
           : Math.min(parsed.balance, INITIAL_APP_STATE.withdrawableBalance),
       isAuthenticated: autoStart
         ? true
-        : wasDemoSession || wasRestricted
+        : wasDemoSession || wasRestricted || invalidOwnerSession || wasDeactivatedSession
         ? false
         : parsed.isAuthenticated ?? INITIAL_APP_STATE.isAuthenticated ?? false,
-      registeredAccounts: normalizedAccounts,
+      registeredAccounts: seededNormalizedAccounts,
       profile: {
         ...INITIAL_APP_STATE.profile,
         ...(parsed.profile ?? {}),
         referralCode:
           parsed.profile?.referralCode ||
+          matchedSeededAcc?.referralCode ||
           matchedNormalizedAcc?.referralCode ||
           (parsed.profile?.email
             ? generateReferralCode(parsed.profile.email, seenRefCodes)
@@ -281,6 +381,26 @@ function loadInitialState(): AppState {
       referralConfig: {
         ...DEFAULT_REFERRAL_CONFIG,
         ...(parsed.referralConfig ?? {}),
+        referrerBonusInr: Math.min(
+          25,
+          Math.max(
+            0,
+            Number(
+              parsed.referralConfig?.referrerBonusInr ??
+                DEFAULT_REFERRAL_CONFIG.referrerBonusInr
+            )
+          )
+        ),
+        refereeBonusInr: Math.min(
+          20,
+          Math.max(
+            0,
+            Number(
+              parsed.referralConfig?.refereeBonusInr ??
+                DEFAULT_REFERRAL_CONFIG.refereeBonusInr
+            )
+          )
+        ),
       },
       customGiftCodes: Array.isArray(parsed.customGiftCodes)
         ? parsed.customGiftCodes
@@ -303,6 +423,7 @@ function loadInitialState(): AppState {
   } catch {
     return {
       ...INITIAL_APP_STATE,
+      registeredAccounts: ensureOwnerAdminAccount(INITIAL_APP_STATE.registeredAccounts),
       isAuthenticated: autoStart
         ? true
         : INITIAL_APP_STATE.isAuthenticated ?? false,
@@ -446,8 +567,9 @@ export default function App() {
     }
   };
 
-  // Fetch real live FX rates on mount + refresh every 60s
+  // Fetch real live FX rates on mount + refresh every 60s, plus validate Firebase connection
   useEffect(() => {
+    void testConnection();
     void refreshLiveFxRates(false);
     const fxFetchTimer = window.setInterval(() => {
       void refreshLiveFxRates(false);
@@ -472,8 +594,18 @@ export default function App() {
     }
   }, [notifications]);
 
-  // Multi-tab storage sync so Owner approvals or freezes propagate live
+  // Multi-tab real-time sync (BroadcastChannel + storage) so logins, signups, and Admin toggles propagate immediately
   useEffect(() => {
+    const applyIncomingAccounts = (incoming: RegisteredAccount[]) => {
+      setState((prev) => ({
+        ...prev,
+        registeredAccounts: mergeRealtimeAccounts(
+          prev.registeredAccounts ?? [],
+          incoming
+        ),
+      }));
+    };
+
     const handleStorageSync = (e: StorageEvent) => {
       if (e.key !== STORAGE_KEY || !e.newValue) return;
       try {
@@ -481,7 +613,10 @@ export default function App() {
         setState((prev) => ({
           ...prev,
           registeredAccounts: Array.isArray(external.registeredAccounts)
-            ? external.registeredAccounts
+            ? mergeRealtimeAccounts(
+                prev.registeredAccounts ?? [],
+                external.registeredAccounts
+              )
             : prev.registeredAccounts,
           platformTransactions: Array.isArray(external.platformTransactions)
             ? external.platformTransactions
@@ -516,8 +651,68 @@ export default function App() {
       }
     };
     window.addEventListener('storage', handleStorageSync);
-    return () => window.removeEventListener('storage', handleStorageSync);
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        channel = new BroadcastChannel(REALTIME_CHANNEL_NAME);
+        channel.onmessage = (ev: MessageEvent) => {
+          const data = ev.data as
+            | { type?: string; accounts?: RegisteredAccount[] }
+            | undefined;
+          if (
+            data?.type === 'ACCOUNTS_SYNC' &&
+            Array.isArray(data.accounts)
+          ) {
+            applyIncomingAccounts(data.accounts);
+          }
+        };
+      } catch {
+        channel = null;
+      }
+    }
+
+    return () => {
+      window.removeEventListener('storage', handleStorageSync);
+      channel?.close();
+    };
   }, []);
+
+  // Periodic 60-day inactivity deactivation check across all non-owner accounts
+  useEffect(() => {
+    const inactivityTimer = window.setInterval(() => {
+      const now = Date.now();
+      setState((prev) => {
+        const res = enforce60DayInactivityDeactivation(
+          prev.registeredAccounts ?? [],
+          now
+        );
+        if (!res.changed) return prev;
+        return {
+          ...prev,
+          registeredAccounts: res.accounts,
+        };
+      });
+    }, 60000);
+    return () => window.clearInterval(inactivityTimer);
+  }, []);
+
+  // Real-time Firestore collectionGroup directory stream for Owner Admin
+  const isOwnerSessionActive = Boolean(
+    state.isAuthenticated && isOwnerAdmin(state.profile.email)
+  );
+  useEffect(() => {
+    if (!isOwnerSessionActive) return;
+    return subscribeAllUsersForAdmin((cloudUsers) => {
+      setState((prev) => ({
+        ...prev,
+        registeredAccounts: mergeCloudUsersIntoAccounts(
+          prev.registeredAccounts ?? [],
+          cloudUsers
+        ),
+      }));
+    });
+  }, [isOwnerSessionActive]);
 
   // Trigger PaymentTransferAnimation ONLY when Owner approves a deposit or withdrawal for this user
   useEffect(() => {
@@ -552,7 +747,7 @@ export default function App() {
     }
   }, [state, activeTransfer]);
 
-  // Enforce active-session lock if current non-owner user gets frozen or banned
+  // Enforce active-session lock if current non-owner user gets frozen, banned, or deactivated
   useEffect(() => {
     if (!state.isAuthenticated) return;
     const cleanEmail = state.profile.email.trim().toLowerCase();
@@ -560,12 +755,14 @@ export default function App() {
     const currentAcc = (state.registeredAccounts ?? []).find(
       (a) => a.email.trim().toLowerCase() === cleanEmail
     );
-    if (currentAcc && (currentAcc.banned || currentAcc.frozen)) {
+    if (currentAcc && (currentAcc.banned || currentAcc.frozen || currentAcc.deactivated)) {
       const msg = currentAcc.banned
         ? `Account banned${currentAcc.banReason ? `: ${currentAcc.banReason}` : ''}`
-        : `Account frozen${currentAcc.freezeReason ? `: ${currentAcc.freezeReason}` : ''}`;
+        : currentAcc.frozen
+        ? `Account frozen${currentAcc.freezeReason ? `: ${currentAcc.freezeReason}` : ''}`
+        : 'Account deactivated due to inactivity or admin control. Sign back in to reactivate.';
       setState((prev) => ({ ...prev, isAuthenticated: false }));
-      showToast(msg, 'error');
+      showToast(msg, currentAcc.deactivated ? 'info' : 'error');
     }
   }, [state.isAuthenticated, state.profile.email, state.registeredAccounts]);
 
@@ -790,7 +987,15 @@ export default function App() {
     mobileNumber?: string;
   }) => {
     const cleanEmail = params.email.trim().toLowerCase();
-    const accounts = state.registeredAccounts ?? [];
+    const isAdminAttempt = isOwnerAdmin(cleanEmail);
+    if (isAdminAttempt && !verifyOwnerAdminLogin(cleanEmail, params.password)) {
+      return {
+        ok: false,
+        error: 'Incorrect admin password. Please enter the authorized Owner Admin password.',
+      };
+    }
+
+    const accounts = ensureOwnerAdminAccount(state.registeredAccounts ?? []);
     const found = accounts.find(
       (a) => a.email.trim().toLowerCase() === cleanEmail
     );
@@ -800,13 +1005,13 @@ export default function App() {
         error: 'Account not found for this email. Please create an account.',
       };
     }
-    if (found.password !== params.password) {
+    if (!isAdminAttempt && found.password !== params.password) {
       return {
         ok: false,
         error: 'Incorrect password. Please try again.',
       };
     }
-    if (found.banned) {
+    if (!isAdminAttempt && found.banned) {
       return {
         ok: false,
         error: `Account is banned${
@@ -814,7 +1019,7 @@ export default function App() {
         }`,
       };
     }
-    if (found.frozen) {
+    if (!isAdminAttempt && found.frozen) {
       return {
         ok: false,
         error: `Account is frozen${
@@ -823,66 +1028,99 @@ export default function App() {
       };
     }
 
+    const loginNowMs = Date.now();
+    const loginStamp = formatExactDateTime(loginNowMs);
+    const wasDeactivated = Boolean(
+      !isAdminAttempt &&
+        (found.deactivated || isAccountInactive60Days(found, loginNowMs))
+    );
+
     const switchingUser =
       state.profile.email.trim().toLowerCase() !== cleanEmail;
     if (switchingUser) {
       setNotifications([]);
     }
 
-    setState((prev) => {
-      const synced = syncSnapshotToAccounts(prev);
-      const target =
-        synced.find((a) => a.email.trim().toLowerCase() === cleanEmail) ?? found;
-      const hydratedBalance =
-        typeof target.balance === 'number' ? target.balance : 0;
-      const hydratedWithdrawable =
-        typeof target.withdrawableBalance === 'number'
-          ? Math.min(hydratedBalance, Math.max(0, target.withdrawableBalance))
-          : 0;
+    const syncedPrev = ensureOwnerAdminAccount(syncSnapshotToAccounts(state));
+    const reactivatedAccounts = syncedPrev.map((a) =>
+      a.email.trim().toLowerCase() === cleanEmail
+        ? {
+            ...a,
+            phone: params.mobileNumber?.trim() || a.phone,
+            lastLoginAtMs: loginNowMs,
+            lastLoginAt: loginStamp,
+            deactivated: false,
+            deactivatedAtMs: undefined,
+            deactivatedReason: undefined,
+            deactivatedBy: undefined,
+          }
+        : a
+    );
+    const target =
+      reactivatedAccounts.find(
+        (a) => a.email.trim().toLowerCase() === cleanEmail
+      ) ?? found;
+    const hydratedBalance =
+      typeof target.balance === 'number' ? target.balance : 0;
+    const hydratedWithdrawable =
+      typeof target.withdrawableBalance === 'number'
+        ? Math.min(hydratedBalance, Math.max(0, target.withdrawableBalance))
+        : 0;
 
-      return {
-        ...prev,
-        isAuthenticated: true,
-        balance: hydratedBalance,
-        withdrawableBalance: hydratedWithdrawable,
-        usdtHoldings:
-          typeof target.usdtHoldings === 'number' ? target.usdtHoldings : 0,
-        todayReceived:
-          typeof target.todayReceived === 'number' ? target.todayReceived : 0,
-        realizedPnl:
-          typeof target.realizedPnl === 'number' ? target.realizedPnl : 0,
-        positions: Array.isArray(target.positions) ? target.positions : [],
-        bets: Array.isArray(target.bets) ? target.bets : [],
-        transactions: Array.isArray(target.transactions)
-          ? target.transactions
-          : [],
-        bankAccounts: Array.isArray(target.bankAccounts)
-          ? target.bankAccounts
-          : [],
-        upiAccounts: Array.isArray(target.upiAccounts) ? target.upiAccounts : [],
-        supportTickets: Array.isArray(target.supportTickets)
-          ? target.supportTickets
-          : [],
-        redeemedGifts: Array.isArray(target.redeemedGifts)
-          ? target.redeemedGifts
-          : [],
-        registeredAccounts: synced,
-        profile: {
-          ...prev.profile,
-          name: target.name,
-          email: target.email,
-          uid: target.uid,
-          phone: params.mobileNumber?.trim() || target.phone || prev.profile.phone,
-          referralCode: target.referralCode,
-          referredByCode: target.referredByCode,
-        },
-      };
-    });
+    setState((prev) => ({
+      ...prev,
+      isAuthenticated: true,
+      balance: hydratedBalance,
+      withdrawableBalance: hydratedWithdrawable,
+      usdtHoldings:
+        typeof target.usdtHoldings === 'number' ? target.usdtHoldings : 0,
+      todayReceived:
+        typeof target.todayReceived === 'number' ? target.todayReceived : 0,
+      realizedPnl:
+        typeof target.realizedPnl === 'number' ? target.realizedPnl : 0,
+      positions: Array.isArray(target.positions) ? target.positions : [],
+      bets: Array.isArray(target.bets) ? target.bets : [],
+      transactions: Array.isArray(target.transactions)
+        ? target.transactions
+        : [],
+      bankAccounts: Array.isArray(target.bankAccounts)
+        ? target.bankAccounts
+        : [],
+      upiAccounts: Array.isArray(target.upiAccounts) ? target.upiAccounts : [],
+      supportTickets: Array.isArray(target.supportTickets)
+        ? target.supportTickets
+        : [],
+      redeemedGifts: Array.isArray(target.redeemedGifts)
+        ? target.redeemedGifts
+        : [],
+      registeredAccounts: reactivatedAccounts,
+      profile: {
+        ...prev.profile,
+        name: target.name,
+        email: target.email,
+        uid: target.uid,
+        phone: params.mobileNumber?.trim() || target.phone || prev.profile.phone,
+        referralCode: target.referralCode,
+        referredByCode: target.referredByCode,
+      },
+    }));
+    broadcastAccountsSync(reactivatedAccounts);
     setShowAuthModal(false);
     if (activeNav === 'admin' && !isOwnerAdmin(cleanEmail)) {
       setActiveNav('markets');
     }
-    showToast(`Welcome back, ${found.name}`, 'success');
+    if (wasDeactivated) {
+      pushNotification('system', {
+        title: 'Account Reactivated',
+        msg: `Welcome back, ${found.name}! Your account has been automatically reactivated.`,
+      });
+      showToast(
+        `Welcome back, ${found.name}! Your account has been reactivated.`,
+        'success'
+      );
+    } else {
+      showToast(`Welcome back, ${found.name}`, 'success');
+    }
     return { ok: true };
   };
 
@@ -903,7 +1141,13 @@ export default function App() {
       };
     }
     const cleanEmail = params.email.trim().toLowerCase();
-    const accounts = state.registeredAccounts ?? [];
+    if (isOwnerAdmin(cleanEmail)) {
+      return {
+        ok: false,
+        error: 'This email is reserved for Owner Admin. Please Sign In with your admin password.',
+      };
+    }
+    const accounts = ensureOwnerAdminAccount(state.registeredAccounts ?? []);
     if (accounts.some((a) => a.email.trim().toLowerCase() === cleanEmail)) {
       return {
         ok: false,
@@ -931,7 +1175,8 @@ export default function App() {
         .toUpperCase() || 'TRD'
     }`;
     const cleanPhone = params.mobileNumber?.trim() || undefined;
-    const stamp = formatExactDateTime();
+    const nowMs = Date.now();
+    const stamp = formatExactDateTime(nowMs);
     const assignedReferralCode = generateReferralCode(
       cleanEmail || cleanName,
       accounts.map((a) => a.referralCode)
@@ -963,15 +1208,221 @@ export default function App() {
       referralRewardSettled: false,
       rewardedReferralsCount: 0,
       referralEarnedInr: 0,
+      lastLoginAtMs: nowMs,
+      lastLoginAt: stamp,
+      deactivated: false,
       createdAt: stamp,
     };
 
     setNotifications([]);
-    setState((prev) => {
-      const syncedPrev = syncSnapshotToAccounts(prev);
+    const syncedPrev = ensureOwnerAdminAccount(syncSnapshotToAccounts(state));
+    const baseSignupState: AppState = {
+      ...state,
+      isAuthenticated: true,
+      balance: 0,
+      withdrawableBalance: 0,
+      usdtHoldings: 0,
+      todayReceived: 0,
+      realizedPnl: 0,
+      positions: [],
+      bets: [],
+      transactions: [],
+      bankAccounts: [],
+      upiAccounts: [],
+      supportTickets: [],
+      redeemedGifts: [],
+      registeredAccounts: [newAcc, ...syncedPrev],
+      profile: {
+        ...state.profile,
+        name: cleanName,
+        email: cleanEmail,
+        uid,
+        phone: cleanPhone,
+        referralCode: assignedReferralCode,
+        referredByCode: refCheck.normalizedCode,
+      },
+    };
+    let finalSignupState = baseSignupState;
+    let creditedRefereeBonus = 0;
+    if (refCheck.normalizedCode) {
+      const refRes = applyReferralBonusOnSignup(baseSignupState, nowMs);
+      creditedRefereeBonus = refRes.refereeBonus;
+      finalSignupState = refRes.nextState;
+    }
 
+    setState(finalSignupState);
+    broadcastAccountsSync(finalSignupState.registeredAccounts ?? []);
+
+    setShowAuthModal(false);
+    if (activeNav === 'admin') {
+      setActiveNav('markets');
+    }
+    if (creditedRefereeBonus > 0) {
+      pushNotification('deposit_ok', {
+        title: 'Referral Play Bonus Credited',
+        msg: `₹${creditedRefereeBonus.toFixed(0)} welcome bonus credited immediately to your play wallet.`,
+        route: 'wallet',
+      });
+    }
+    showToast(
+      creditedRefereeBonus > 0
+        ? `Account created! ₹${creditedRefereeBonus.toFixed(0)} referral play bonus credited!`
+        : refCheck.normalizedCode
+        ? `Account created for ${cleanName}`
+        : `Account created for ${cleanName} (₹0.00 ready)`,
+      'success'
+    );
+    return { ok: true };
+  };
+
+  const handleGoogleSignIn = async (params: {
+    referralCode?: string;
+  }): Promise<{ ok: boolean; error?: string }> => {
+    const existingAccounts = ensureOwnerAdminAccount(state.registeredAccounts ?? []);
+    const gRes = await signInWithGooglePopup((email) =>
+      generateReferralCode(
+        email,
+        existingAccounts.map((a) => a.referralCode)
+      )
+    );
+    if (!gRes.ok) {
+      return { ok: false, error: gRes.error };
+    }
+
+    const cleanEmail = gRes.user.email.trim().toLowerCase();
+    const existingAcc = existingAccounts.find(
+      (a) => a.email.trim().toLowerCase() === cleanEmail
+    );
+
+    if (existingAcc && !isOwnerAdmin(cleanEmail) && (existingAcc.banned || existingAcc.frozen)) {
       return {
-        ...prev,
+        ok: false,
+        error: existingAcc.banned
+          ? `Account is banned${existingAcc.banReason ? `: ${existingAcc.banReason}` : ''}`
+          : `Account is frozen${existingAcc.freezeReason ? `: ${existingAcc.freezeReason}` : ''}`,
+      };
+    }
+
+    let refCodeToApply: string | undefined;
+    if (!existingAcc && params.referralCode?.trim()) {
+      const refCheck = validateAndResolveReferralCode(
+        existingAccounts,
+        params.referralCode,
+        cleanEmail
+      );
+      if (!refCheck.ok) {
+        return { ok: false, error: refCheck.error };
+      }
+      refCodeToApply = refCheck.normalizedCode;
+    }
+
+    const loginNowMs = Date.now();
+    const loginStamp = formatExactDateTime(loginNowMs);
+    const wasDeactivated = Boolean(
+      existingAcc &&
+        !isOwnerAdmin(cleanEmail) &&
+        (existingAcc.deactivated || isAccountInactive60Days(existingAcc, loginNowMs))
+    );
+
+    let bonusCredited = 0;
+    setNotifications([]);
+    const syncedPrev = ensureOwnerAdminAccount(syncSnapshotToAccounts(state));
+    const matched = syncedPrev.find(
+      (a) => a.email.trim().toLowerCase() === cleanEmail
+    );
+
+    let nextStateToCommit: AppState;
+    if (matched) {
+      const reactivatedMatchedAccounts = syncedPrev.map((a) =>
+        a.email.trim().toLowerCase() === cleanEmail
+          ? {
+              ...a,
+              firebaseUid: gRes.user.uid,
+              lastLoginAtMs: loginNowMs,
+              lastLoginAt: loginStamp,
+              deactivated: false,
+              deactivatedAtMs: undefined,
+              deactivatedReason: undefined,
+              deactivatedBy: undefined,
+            }
+          : a
+      );
+      const hydratedBalance =
+        typeof matched.balance === 'number' ? matched.balance : 0;
+      const hydratedWithdrawable =
+        typeof matched.withdrawableBalance === 'number'
+          ? Math.min(hydratedBalance, Math.max(0, matched.withdrawableBalance))
+          : 0;
+      nextStateToCommit = {
+        ...state,
+        isAuthenticated: true,
+        balance: hydratedBalance,
+        withdrawableBalance: hydratedWithdrawable,
+        usdtHoldings: matched.usdtHoldings ?? 0,
+        todayReceived: matched.todayReceived ?? 0,
+        realizedPnl: matched.realizedPnl ?? 0,
+        positions: matched.positions ?? [],
+        bets: matched.bets ?? [],
+        transactions: matched.transactions ?? [],
+        bankAccounts: matched.bankAccounts ?? [],
+        upiAccounts: matched.upiAccounts ?? [],
+        supportTickets: matched.supportTickets ?? [],
+        redeemedGifts: matched.redeemedGifts ?? [],
+        registeredAccounts: reactivatedMatchedAccounts,
+        profile: {
+          ...state.profile,
+          name: matched.name,
+          email: matched.email,
+          uid: matched.uid,
+          phone: matched.phone ?? state.profile.phone,
+          referralCode: matched.referralCode,
+          referredByCode: matched.referredByCode,
+        },
+      };
+    } else {
+      const assignedCode = generateReferralCode(
+        cleanEmail,
+        syncedPrev.map((a) => a.referralCode)
+      );
+      const uid = `UID-${Math.floor(1000 + Math.random() * 8999)}-${
+        gRes.user.name
+          .replace(/[^a-zA-Z]/g, '')
+          .slice(0, 5)
+          .toUpperCase() || 'TRD'
+      }`;
+      const newGoogleAcc: RegisteredAccount = {
+        email: cleanEmail,
+        password: Math.random().toString(36).slice(2, 14),
+        name: gRes.user.name,
+        uid,
+        firebaseUid: gRes.user.uid,
+        balance: 0,
+        withdrawableBalance: 0,
+        usdtHoldings: 0,
+        todayReceived: 0,
+        realizedPnl: 0,
+        totalDepositedInr: 0,
+        totalWithdrawnInr: 0,
+        positions: [],
+        bets: [],
+        transactions: [],
+        bankAccounts: [],
+        upiAccounts: [],
+        supportTickets: [],
+        redeemedGifts: [],
+        seenBroadcastIds: [],
+        referralCode: assignedCode,
+        referredByCode: refCodeToApply,
+        referralRewardSettled: false,
+        rewardedReferralsCount: 0,
+        referralEarnedInr: 0,
+        lastLoginAtMs: loginNowMs,
+        lastLoginAt: loginStamp,
+        deactivated: false,
+        createdAt: loginStamp,
+      };
+      const baseGoogleState: AppState = {
+        ...state,
         isAuthenticated: true,
         balance: 0,
         withdrawableBalance: 0,
@@ -985,29 +1436,49 @@ export default function App() {
         upiAccounts: [],
         supportTickets: [],
         redeemedGifts: [],
-        registeredAccounts: [newAcc, ...syncedPrev],
+        registeredAccounts: [newGoogleAcc, ...syncedPrev],
         profile: {
-          ...prev.profile,
-          name: cleanName,
+          ...state.profile,
+          name: gRes.user.name,
           email: cleanEmail,
           uid,
-          phone: cleanPhone,
-          referralCode: assignedReferralCode,
-          referredByCode: refCheck.normalizedCode,
+          referralCode: assignedCode,
+          referredByCode: refCodeToApply,
         },
       };
-    });
+      if (refCodeToApply) {
+        const refRes = applyReferralBonusOnSignup(baseGoogleState, loginNowMs);
+        bonusCredited = refRes.refereeBonus;
+        nextStateToCommit = refRes.nextState;
+      } else {
+        nextStateToCommit = baseGoogleState;
+      }
+    }
+
+    setState(nextStateToCommit);
+    broadcastAccountsSync(nextStateToCommit.registeredAccounts ?? []);
 
     setShowAuthModal(false);
-    if (activeNav === 'admin') {
+    if (activeNav === 'admin' && !isOwnerAdmin(cleanEmail)) {
       setActiveNav('markets');
     }
-    showToast(
-      refCheck.normalizedCode
-        ? `Account created! Place your 1st bet to unlock your referral bonus`
-        : `Account created for ${cleanName} (₹0.00 ready)`,
-      'success'
-    );
+    if (wasDeactivated) {
+      pushNotification('system', {
+        title: 'Account Reactivated',
+        msg: `Welcome back, ${gRes.user.name}! Your account has been automatically reactivated.`,
+      });
+      showToast(
+        `Welcome back, ${gRes.user.name}! Your account has been reactivated.`,
+        'success'
+      );
+    } else {
+      showToast(
+        bonusCredited > 0
+          ? `Signed in with Google! ₹${bonusCredited.toFixed(0)} referral play bonus credited!`
+          : `Signed in as ${gRes.user.name}`,
+        'success'
+      );
+    }
     return { ok: true };
   };
 
@@ -1051,6 +1522,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    void signOutFirebase();
     setState((prev) => ({
       ...prev,
       isAuthenticated: false,
@@ -1167,6 +1639,7 @@ export default function App() {
       return;
     }
     setState(res.nextState);
+    void syncMarketToFirestore(res.market).catch(() => {});
     showToast(`Published live bet: ${res.market.question.slice(0, 40)}...`, 'success');
   };
 
@@ -1220,6 +1693,7 @@ export default function App() {
     const res = applyTopUp(state, amount, method, utr);
     if (!res.ok) return { ok: false, error: res.error };
     setState(res.nextState);
+    void syncPendingTxToFirestore(res.transaction).catch(() => {});
     pushNotification('deposit_pending', {
       title: 'Deposit Under Review',
       msg: `₹${amount.toFixed(2)} via ${method} submitted${
@@ -1238,6 +1712,7 @@ export default function App() {
     const res = applyWithdraw(state, amount, destinationId);
     if (!res.ok) return { ok: false, error: res.error };
     setState(res.nextState);
+    void syncPendingTxToFirestore(res.transaction).catch(() => {});
     pushNotification('system', {
       title: 'Withdrawal In Process',
       msg: `₹${amount.toFixed(2)} withdrawal to ${res.channelLabel} is In Process for Owner payout approval.`,
@@ -1518,8 +1993,8 @@ export default function App() {
     admin: 'Owner Admin Panel',
   };
 
-  // Owner-exclusive Admin handlers (blocked completely for non-owner accounts)
-  const ownerAuthorized = isOwnerAdmin(state.profile.email);
+  // Owner-exclusive Admin handlers (blocked completely for non-owner or logged-out sessions)
+  const ownerAuthorized = Boolean(state.isAuthenticated && isOwnerAdmin(state.profile.email));
 
   const handleUpdateReferralConfig = (next: ReferralConfig) => {
     if (!ownerAuthorized) return;
@@ -1625,36 +2100,92 @@ export default function App() {
     const isSelf = state.profile.email.trim().toLowerCase() === cleanTarget;
     const round2 = (n: number) => Math.max(0, Math.round(n * 100) / 100);
 
-    setState((prev) => {
-      const nextSelfBal = round2(prev.balance + deltaInr);
-      const nextSelfWithdrawable = Math.min(
-        nextSelfBal,
-        round2((prev.withdrawableBalance ?? 0) + deltaInr)
+    const nextSelfBal = round2(state.balance + deltaInr);
+    const nextSelfWithdrawable = Math.min(
+      nextSelfBal,
+      round2((state.withdrawableBalance ?? 0) + deltaInr)
+    );
+    let updatedFirebaseUid: string | undefined;
+    let updatedBal = 0;
+    let updatedWd = 0;
+    const nextAccounts = (state.registeredAccounts ?? []).map((acc) => {
+      if (acc.email.trim().toLowerCase() !== cleanTarget) return acc;
+      const nextBal = round2((acc.balance ?? 0) + deltaInr);
+      const nextWd = Math.min(
+        nextBal,
+        round2((acc.withdrawableBalance ?? 0) + deltaInr)
       );
+      updatedFirebaseUid = acc.firebaseUid;
+      updatedBal = nextBal;
+      updatedWd = nextWd;
       return {
-        ...prev,
-        balance: isSelf ? nextSelfBal : prev.balance,
-        withdrawableBalance: isSelf
-          ? nextSelfWithdrawable
-          : prev.withdrawableBalance,
-        registeredAccounts: (prev.registeredAccounts ?? []).map((acc) => {
-          if (acc.email.trim().toLowerCase() !== cleanTarget) return acc;
-          const nextBal = round2((acc.balance ?? 0) + deltaInr);
-          const nextWd = Math.min(
-            nextBal,
-            round2((acc.withdrawableBalance ?? 0) + deltaInr)
-          );
-          return {
-            ...acc,
-            balance: nextBal,
-            withdrawableBalance: nextWd,
-          };
-        }),
+        ...acc,
+        balance: nextBal,
+        withdrawableBalance: nextWd,
       };
     });
+
+    setState((prev) => ({
+      ...prev,
+      balance: isSelf ? nextSelfBal : prev.balance,
+      withdrawableBalance: isSelf
+        ? nextSelfWithdrawable
+        : prev.withdrawableBalance,
+      registeredAccounts: nextAccounts,
+    }));
+    broadcastAccountsSync(nextAccounts);
+    if (updatedFirebaseUid) {
+      void syncAdminUserUpdateToFirestore(updatedFirebaseUid, {
+        balance: updatedBal,
+        withdrawableBalance: updatedWd,
+      }).catch(() => {});
+    }
     showToast(
       `${deltaInr >= 0 ? '+' : ''}₹${deltaInr} applied to ${cleanTarget}`,
       deltaInr >= 0 ? 'success' : 'info'
+    );
+  };
+
+  const handleToggleDeactivateAccount = (
+    targetEmail: string,
+    deactivate: boolean,
+    reason = ''
+  ) => {
+    if (!ownerAuthorized || isOwnerAdmin(targetEmail)) return;
+    const cleanTarget = targetEmail.trim().toLowerCase();
+    const actionNowMs = Date.now();
+    const nextState = adminToggleDeactivateAccount(
+      state,
+      cleanTarget,
+      deactivate,
+      reason,
+      actionNowMs
+    );
+    setState(nextState);
+    broadcastAccountsSync(nextState.registeredAccounts ?? []);
+    const targetAcc = (nextState.registeredAccounts ?? []).find(
+      (a) => a.email.trim().toLowerCase() === cleanTarget
+    );
+    if (targetAcc?.firebaseUid) {
+      void syncAdminUserUpdateToFirestore(targetAcc.firebaseUid, {
+        deactivated: deactivate,
+        ...(deactivate
+          ? {
+              deactivatedAtMs: actionNowMs,
+              deactivatedBy: 'admin',
+              deactivatedReason:
+                reason.trim() || 'Deactivated from Owner Admin Panel',
+            }
+          : {
+              lastLoginAtMs: actionNowMs,
+            }),
+      }).catch(() => {});
+    }
+    showToast(
+      deactivate
+        ? `Account ${cleanTarget} deactivated`
+        : `Account ${cleanTarget} activated`,
+      deactivate ? 'info' : 'success'
     );
   };
 
@@ -1665,20 +2196,28 @@ export default function App() {
   ) => {
     if (!ownerAuthorized || isOwnerAdmin(targetEmail)) return;
     const cleanTarget = targetEmail.trim().toLowerCase();
+    let updatedFirebaseUid: string | undefined;
+    const nextAccounts = (state.registeredAccounts ?? []).map((acc) => {
+      if (acc.email.trim().toLowerCase() !== cleanTarget) return acc;
+      updatedFirebaseUid = acc.firebaseUid;
+      return {
+        ...acc,
+        frozen,
+        freezeReason: frozen
+          ? reason.trim() || 'Restricted by Owner Console'
+          : undefined,
+      };
+    });
     setState((prev) => ({
       ...prev,
-      registeredAccounts: (prev.registeredAccounts ?? []).map((acc) =>
-        acc.email.trim().toLowerCase() === cleanTarget
-          ? {
-              ...acc,
-              frozen,
-              freezeReason: frozen
-                ? reason.trim() || 'Restricted by Owner Console'
-                : undefined,
-            }
-          : acc
-      ),
+      registeredAccounts: nextAccounts,
     }));
+    broadcastAccountsSync(nextAccounts);
+    if (updatedFirebaseUid) {
+      void syncAdminUserUpdateToFirestore(updatedFirebaseUid, { frozen }).catch(
+        () => {}
+      );
+    }
     showToast(
       frozen ? `Account ${cleanTarget} frozen` : `Account ${cleanTarget} unfrozen`,
       frozen ? 'info' : 'success'
@@ -1692,20 +2231,28 @@ export default function App() {
   ) => {
     if (!ownerAuthorized || isOwnerAdmin(targetEmail)) return;
     const cleanTarget = targetEmail.trim().toLowerCase();
+    let updatedFirebaseUid: string | undefined;
+    const nextAccounts = (state.registeredAccounts ?? []).map((acc) => {
+      if (acc.email.trim().toLowerCase() !== cleanTarget) return acc;
+      updatedFirebaseUid = acc.firebaseUid;
+      return {
+        ...acc,
+        banned,
+        banReason: banned
+          ? reason.trim() || 'Permanently banned by Owner Console'
+          : undefined,
+      };
+    });
     setState((prev) => ({
       ...prev,
-      registeredAccounts: (prev.registeredAccounts ?? []).map((acc) =>
-        acc.email.trim().toLowerCase() === cleanTarget
-          ? {
-              ...acc,
-              banned,
-              banReason: banned
-                ? reason.trim() || 'Permanently banned by Owner Console'
-                : undefined,
-            }
-          : acc
-      ),
+      registeredAccounts: nextAccounts,
     }));
+    broadcastAccountsSync(nextAccounts);
+    if (updatedFirebaseUid) {
+      void syncAdminUserUpdateToFirestore(updatedFirebaseUid, { banned }).catch(
+        () => {}
+      );
+    }
     showToast(
       banned ? `Account ${cleanTarget} banned` : `Account ${cleanTarget} unbanned`,
       banned ? 'info' : 'success'
@@ -1719,14 +2266,22 @@ export default function App() {
   ) => {
     if (!ownerAuthorized || isOwnerAdmin(targetEmail)) return;
     const cleanTarget = targetEmail.trim().toLowerCase();
+    let updatedFirebaseUid: string | undefined;
+    const nextAccounts = (state.registeredAccounts ?? []).map((acc) => {
+      if (acc.email.trim().toLowerCase() !== cleanTarget) return acc;
+      updatedFirebaseUid = acc.firebaseUid;
+      return { ...acc, [field]: value };
+    });
     setState((prev) => ({
       ...prev,
-      registeredAccounts: (prev.registeredAccounts ?? []).map((acc) =>
-        acc.email.trim().toLowerCase() === cleanTarget
-          ? { ...acc, [field]: value }
-          : acc
-      ),
+      registeredAccounts: nextAccounts,
     }));
+    broadcastAccountsSync(nextAccounts);
+    if (updatedFirebaseUid) {
+      void syncAdminUserUpdateToFirestore(updatedFirebaseUid, {
+        [field]: value,
+      }).catch(() => {});
+    }
     const label = field === 'withdrawalsBlocked' ? 'Withdrawals' : 'Trading';
     showToast(
       `${label} ${value ? 'paused' : 'enabled'} for ${cleanTarget}`,
@@ -1912,6 +2467,7 @@ export default function App() {
           onOpenTerms={() => setTermsOpen(true)}
           onLogin={handleLogin}
           onSignup={handleSignup}
+          onGoogleSignIn={handleGoogleSignIn}
         />
         <TermsModal open={termsOpen} onClose={() => setTermsOpen(false)} />
         {toast && (
@@ -2100,6 +2656,21 @@ export default function App() {
                         {unreadCount > 99 ? '99+' : unreadCount}
                       </span>
                     )}
+                  </button>
+                )}
+                {ownerAuthorized && (
+                  <button
+                    type="button"
+                    id="header-admin-panel-btn"
+                    onClick={() => setActiveNav(activeNav === 'admin' ? 'markets' : 'admin')}
+                    className={`preserve-white min-h-[38px] px-3 rounded-xl border text-xs font-extrabold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
+                      activeNav === 'admin'
+                        ? 'bg-[#7c3aed] border-[#8b5cf6] text-white'
+                        : 'bg-[#2e1065]/90 hover:bg-[#4c1d95] border-[#8b5cf6]/50 text-emerald-300'
+                    }`}
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Admin Panel</span>
                   </button>
                 )}
                 <button
@@ -2400,6 +2971,7 @@ export default function App() {
                 onRejectWithdrawal={handleRejectWithdrawal}
                 onUpdateTicketStatus={handleUpdateTicketStatus}
                 onAdjustUserBalance={handleAdjustUserBalance}
+                onToggleDeactivateAccount={handleToggleDeactivateAccount}
                 onToggleFreezeAccount={handleToggleFreezeAccount}
                 onToggleBanAccount={handleToggleBanAccount}
                 onToggleUserRestriction={handleToggleUserRestriction}
@@ -2697,6 +3269,7 @@ export default function App() {
               onOpenTerms={() => setTermsOpen(true)}
               onLogin={handleLogin}
               onSignup={handleSignup}
+              onGoogleSignIn={handleGoogleSignIn}
               onClose={() => setShowAuthModal(false)}
             />
           </div>

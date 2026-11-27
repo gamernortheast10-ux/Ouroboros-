@@ -55,9 +55,12 @@ import {
   computeAdminPlatformSummary,
   computeGiftCodeClaimAmount,
   formatCurrency,
+  getAccountInactiveDays,
   getEffectivePlatformSettings,
   getEffectiveReferralConfig,
+  isAccountInactive60Days,
   isOwnerAdmin,
+  parseVoiceCommandLocally,
   validateUpiId,
 } from '../utils/tradingEngine';
 
@@ -71,6 +74,11 @@ interface AdminViewProps {
   onRejectWithdrawal: (txId: string, reason: string) => void;
   onUpdateTicketStatus: (ticketId: string, status: SupportTicket['status']) => void;
   onAdjustUserBalance: (email: string, deltaInr: number) => void;
+  onToggleDeactivateAccount: (
+    email: string,
+    deactivate: boolean,
+    reason?: string
+  ) => void;
   onToggleFreezeAccount: (email: string, frozen: boolean, reason: string) => void;
   onToggleBanAccount: (email: string, banned: boolean, reason: string) => void;
   onToggleUserRestriction: (
@@ -121,6 +129,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onRejectWithdrawal,
   onUpdateTicketStatus,
   onAdjustUserBalance,
+  onToggleDeactivateAccount,
   onToggleFreezeAccount,
   onToggleBanAccount,
   onToggleUserRestriction,
@@ -136,11 +145,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onCreatePredictionMarket,
   onResolvePredictionMarket,
 }) => {
-  // Defense-in-depth owner lock
-  if (!isOwnerAdmin(state.profile.email)) {
-    return null;
-  }
-
   const effectiveCfg = getEffectiveReferralConfig(state);
   const effectiveSettings = getEffectivePlatformSettings(state);
   const [activeSection, setActiveSection] = useState<AdminSection>('overview');
@@ -156,7 +160,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   // Users search, status filter + inline freeze/ban/adjust inputs
   const [userSearch, setUserSearch] = useState('');
-  const [userFilter, setUserFilter] = useState<'all' | 'active' | 'frozen' | 'banned'>('all');
+  const [userFilter, setUserFilter] = useState<
+    'all' | 'active' | 'deactivated' | 'frozen' | 'banned'
+  >('all');
   const [freezeEmail, setFreezeEmail] = useState<string | null>(null);
   const [freezeReasonDraft, setFreezeReasonDraft] = useState('');
   const [banEmail, setBanEmail] = useState<string | null>(null);
@@ -306,18 +312,32 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const filteredAccounts = useMemo(() => {
     const q = userSearch.trim().toLowerCase();
-    return accounts.filter((a) => {
-      if (userFilter === 'active' && (a.frozen || a.banned)) return false;
-      if (userFilter === 'frozen' && !a.frozen) return false;
-      if (userFilter === 'banned' && !a.banned) return false;
-      if (!q) return true;
-      return (
-        a.name.toLowerCase().includes(q) ||
-        a.email.toLowerCase().includes(q) ||
-        a.uid.toLowerCase().includes(q)
-      );
-    });
+    return accounts
+      .filter((a) => {
+        const isDeact =
+          !isOwnerAdmin(a.email) &&
+          (Boolean(a.deactivated) || isAccountInactive60Days(a));
+        if (userFilter === 'active' && (a.frozen || a.banned || isDeact)) return false;
+        if (userFilter === 'deactivated' && (a.frozen || a.banned || !isDeact)) {
+          return false;
+        }
+        if (userFilter === 'frozen' && !a.frozen) return false;
+        if (userFilter === 'banned' && !a.banned) return false;
+        if (!q) return true;
+        return (
+          a.name.toLowerCase().includes(q) ||
+          a.email.toLowerCase().includes(q) ||
+          a.uid.toLowerCase().includes(q) ||
+          (a.referralCode ?? '').toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => (b.lastLoginAtMs ?? 0) - (a.lastLoginAtMs ?? 0));
   }, [accounts, userSearch, userFilter]);
+
+  // Defense-in-depth owner lock (placed after all hooks)
+  if (!state.isAuthenticated || !isOwnerAdmin(state.profile.email)) {
+    return null;
+  }
 
   const handleCopyText = async (text: string, id: string) => {
     try {
@@ -335,8 +355,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
       platformFeePct: Math.min(25, Math.max(0.5, Number(cfgDraft.platformFeePct) || 5)),
       minDepositInr: Math.max(10, Number(cfgDraft.minDepositInr) || 100),
       minWithdrawInr: Math.max(10, Number(cfgDraft.minWithdrawInr) || 100),
-      referrerBonusInr: Math.max(0, Number(cfgDraft.referrerBonusInr ?? 50)),
-      refereeBonusInr: Math.max(0, Number(cfgDraft.refereeBonusInr ?? 25)),
+      referrerBonusInr: Math.min(25, Math.max(0, Number(cfgDraft.referrerBonusInr ?? 25))),
+      refereeBonusInr: Math.min(20, Math.max(0, Number(cfgDraft.refereeBonusInr ?? 20))),
       maxReferralsPerUser: Math.max(1, Math.floor(Number(cfgDraft.maxReferralsPerUser ?? 10))),
       referralBonusCapInr: Math.max(0, Number(cfgDraft.referralBonusCapInr ?? 500)),
     });
@@ -435,10 +455,29 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
+  const applyDraftToForm = (draft: Partial<OwnerPredictionDraft>) => {
+    setDraftQuestion(String(draft.question || ''));
+    const rawCat = String(draft.category || 'Political');
+    setDraftCategory(
+      rawCat === 'Sports' ||
+        rawCat === 'Crypto' ||
+        rawCat === 'Famous Games' ||
+        rawCat === 'Mobile Brands' ||
+        rawCat === 'Political'
+        ? rawCat
+        : 'Political'
+    );
+    setDraftSubLabel(String(draft.subLabel || 'Owner Desk'));
+    setDraftEndLabel(String(draft.endLabel || 'Live Web Settled'));
+    const hrs = Math.max(1, Math.round((Number(draft.endsInSeconds) || 86400) / 3600));
+    setDraftEndsHours(String(hrs));
+    setDraftCriteria(String(draft.resolutionCriteria || ''));
+  };
+
   const handleParseVoiceCommand = async () => {
     const clean = voiceTranscript.trim();
     if (clean.length < 4) {
-      setVoiceError('Speak or enter a voice command first (e.g. "Agle election mein kaun PM banega Amit Shah Yes or No").');
+      setVoiceError('Speak or enter a voice command first (e.g. "Agle election mein kaun PM banega Amit Shah yes ya no").');
       return;
     }
     setVoiceError('');
@@ -458,32 +497,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
         : null;
       const draft = data?.draft ?? data;
       if (!resp.ok || !draft?.question) {
-        setVoiceError(
-          data?.error ||
-            (!contentType.includes('application/json')
-              ? 'Backend AI endpoint is unavailable on static hosting.'
-              : 'Could not parse voice command.')
-        );
+        applyDraftToForm(parseVoiceCommandLocally(clean));
         return;
       }
-      setDraftQuestion(String(draft.question || ''));
-      const rawCat = String(draft.category || 'Political');
-      setDraftCategory(
-        rawCat === 'Sports' ||
-          rawCat === 'Crypto' ||
-          rawCat === 'Famous Games' ||
-          rawCat === 'Mobile Brands' ||
-          rawCat === 'Political'
-          ? rawCat
-          : 'Political'
-      );
-      setDraftSubLabel(String(draft.subLabel || 'Owner Desk'));
-      setDraftEndLabel(String(draft.endLabel || 'Live Web Settled'));
-      const hrs = Math.max(1, Math.round((Number(draft.endsInSeconds) || 86400) / 3600));
-      setDraftEndsHours(String(hrs));
-      setDraftCriteria(String(draft.resolutionCriteria || ''));
+      applyDraftToForm(draft);
     } catch {
-      setVoiceError('Network error calling voice bet parser.');
+      applyDraftToForm(parseVoiceCommandLocally(clean));
     } finally {
       setVoiceBusy(false);
     }
@@ -535,8 +554,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
           summary:
             data?.error ||
             (!contentType.includes('application/json')
-              ? 'Live web verification API is unavailable on static hosting.'
-              : 'Live web verification failed.'),
+              ? 'Live web auto-check requires the backend server. Use Settle YES or Settle NO below to resolve directly.'
+              : 'Live web verification failed. Use Settle YES or Settle NO below.'),
         });
         return;
       }
@@ -895,7 +914,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       {platformSummary.totalUsersCount} Total
                     </div>
                     <div className="text-[10.5px] text-slate-400 font-mono-nums mt-0.5">
-                      {platformSummary.activeUsersCount} Act · {platformSummary.frozenUsersCount} Frz · {platformSummary.bannedUsersCount} Ban
+                      {platformSummary.activeUsersCount} Act · {platformSummary.deactivatedUsersCount} Deact · {platformSummary.frozenUsersCount} Frz · {platformSummary.bannedUsersCount} Ban
                     </div>
                   </div>
                 </div>
@@ -990,17 +1009,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
                     <label className="flex flex-col justify-between">
                       <span className="text-[11px] font-semibold text-slate-400">
-                        Referrer Bonus (₹)
+                        Referrer Bonus (Max ₹25)
                       </span>
                       <input
                         type="number"
                         min={0}
+                        max={25}
                         step={5}
-                        value={cfgDraft.referrerBonusInr ?? 50}
+                        value={Math.min(25, cfgDraft.referrerBonusInr ?? 25)}
                         onChange={(e) =>
                           setCfgDraft({
                             ...cfgDraft,
-                            referrerBonusInr: Number(e.target.value),
+                            referrerBonusInr: Math.min(25, Math.max(0, Number(e.target.value))),
                           })
                         }
                         aria-label="Referrer bonus INR"
@@ -1009,17 +1029,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </label>
                     <label className="flex flex-col justify-between">
                       <span className="text-[11px] font-semibold text-slate-400">
-                        Referee Bonus (₹)
+                        New User Bonus (Max ₹20)
                       </span>
                       <input
                         type="number"
                         min={0}
+                        max={20}
                         step={5}
-                        value={cfgDraft.refereeBonusInr ?? 25}
+                        value={Math.min(20, cfgDraft.refereeBonusInr ?? 20)}
                         onChange={(e) =>
                           setCfgDraft({
                             ...cfgDraft,
-                            refereeBonusInr: Number(e.target.value),
+                            refereeBonusInr: Math.min(20, Math.max(0, Number(e.target.value))),
                           })
                         }
                         aria-label="Referee bonus INR"
@@ -1523,16 +1544,22 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </section>
           )}
 
-          {/* PANEL 4: User Management (Freeze/Unfreeze, Ban/Unban, Pause WD/Trade, Balance +/- Adjust) */}
+          {/* PANEL 4: User Management (Live Directory, 60-Day Deactivation, Activate/Deactivate, Freeze/Ban, Balance Adjust) */}
           {activeSection === 'users' && (
             <section className="rounded-2xl bg-[#13131f] border border-white/[0.08] p-4 sm:p-5 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-bold text-white">
-                    Registered Users &amp; Account Controls
-                  </h2>
-                  <p className="text-xs text-slate-400">
-                    Manage balances, freeze/ban accounts, pause withdrawals/trading &amp; audit totals
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-base font-bold text-white">
+                      Registered Users &amp; Account Controls
+                    </h2>
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/35 text-[10px] font-extrabold text-emerald-300 tracking-wide">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      REAL-TIME LIVE
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Every login appears live. Non-owner accounts inactive for 60 days auto-deactivate and auto-reactivate on return or manual Activate.
                   </p>
                 </div>
                 <div className="relative w-full sm:w-64">
@@ -1553,6 +1580,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   [
                     { id: 'all', label: `All (${platformSummary.totalUsersCount})` },
                     { id: 'active', label: `Active (${platformSummary.activeUsersCount})` },
+                    {
+                      id: 'deactivated',
+                      label: `Deactivated (${platformSummary.deactivatedUsersCount})`,
+                    },
                     { id: 'frozen', label: `Frozen (${platformSummary.frozenUsersCount})` },
                     { id: 'banned', label: `Banned (${platformSummary.bannedUsersCount})` },
                   ] as const
@@ -1560,6 +1591,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   <button
                     key={tab.id}
                     type="button"
+                    data-testid={`admin-user-filter-${tab.id}`}
                     onClick={() => setUserFilter(tab.id)}
                     className={`btn-press px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
                       userFilter === tab.id
@@ -1583,6 +1615,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     const isCurrent =
                       acc.email.trim().toLowerCase() ===
                       state.profile.email.trim().toLowerCase();
+                    const isDeactivated =
+                      !isThisOwner &&
+                      (Boolean(acc.deactivated) || isAccountInactive60Days(acc));
+                    const inactiveDays = getAccountInactiveDays(acc);
                     const bal = isCurrent ? state.balance : acc.balance ?? 0;
                     const withdrawable = isCurrent
                       ? state.withdrawableBalance
@@ -1600,16 +1636,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     return (
                       <div
                         key={acc.uid}
+                        data-testid={`admin-user-card-${acc.uid}`}
                         className={`p-3.5 sm:p-4 rounded-2xl border space-y-3 ${
                           acc.banned
                             ? 'bg-rose-950/30 border-rose-500/45'
                             : acc.frozen
                             ? 'bg-amber-950/20 border-amber-500/35'
+                            : isDeactivated
+                            ? 'bg-slate-900/75 border-orange-400/35'
                             : 'bg-[#191928] border-white/[0.07]'
                         }`}
                       >
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                          <div className="min-w-0 space-y-1">
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1 space-y-1.5">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-bold text-white">
                                 {acc.name}
@@ -1617,6 +1656,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
                               {isThisOwner && (
                                 <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">
                                   OWNER
+                                </span>
+                              )}
+                              {!isThisOwner && !acc.banned && !acc.frozen && !isDeactivated && (
+                                <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[10px] font-bold">
+                                  ACTIVE
+                                </span>
+                              )}
+                              {isDeactivated && !acc.banned && !acc.frozen && (
+                                <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-200 text-[10px] font-bold">
+                                  {acc.deactivatedBy === 'inactivity_60d' || inactiveDays >= 60
+                                    ? 'DEACTIVATED · 60D INACTIVE'
+                                    : 'DEACTIVATED'}
                                 </span>
                               )}
                               {acc.banned && (
@@ -1643,10 +1694,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
                               )}
                             </div>
 
-                            <div className="text-xs text-slate-400 font-mono-nums truncate">
+                            <div className="text-xs text-slate-400 font-mono-nums break-all">
                               {acc.email} · {acc.uid}
                             </div>
-                            <div className="text-[11px] text-slate-400 font-mono-nums flex flex-wrap gap-x-3 gap-y-0.5">
+                            <div className="text-[11px] text-slate-400 font-mono-nums flex flex-wrap gap-x-4 gap-y-1">
+                              <span>
+                                Last Login:{' '}
+                                <strong className="text-slate-200">
+                                  {acc.lastLoginAt || acc.createdAt || 'Active'}
+                                </strong>{' '}
+                                ({inactiveDays}d idle)
+                              </span>
                               <span>
                                 Deposited:{' '}
                                 <strong className="text-emerald-300">
@@ -1663,6 +1721,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                 Banks: {banksCount} · UPIs: {upisCount}
                               </span>
                             </div>
+                            {isDeactivated && (
+                              <div className="text-[11px] text-orange-300 font-medium">
+                                {acc.deactivatedReason || 'Inactive 60+ days'} · Auto-reactivates on login or click Activate
+                              </div>
+                            )}
                             {acc.frozen && acc.freezeReason && (
                               <div className="text-[11px] text-amber-300 font-medium">
                                 Freeze reason: {acc.freezeReason}
@@ -1675,40 +1738,72 @@ export const AdminView: React.FC<AdminViewProps> = ({
                             )}
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-2 shrink-0">
-                            <div className="text-right mr-1">
-                              <div className="text-[10px] text-slate-400">
-                                Bal / Win Unlocked
-                              </div>
-                              <div className="text-sm font-extrabold text-white font-mono-nums">
-                                {formatCurrency(bal, currency, fxRates)}{' '}
-                                <span className="text-[11px] text-emerald-400">
-                                  ({formatCurrency(withdrawable, currency, fxRates)})
-                                </span>
-                              </div>
+                          <div className="shrink-0 sm:text-right">
+                            <div className="text-[10px] text-slate-400">
+                              Bal / Win Unlocked
                             </div>
+                            <div className="text-sm font-extrabold text-white font-mono-nums whitespace-nowrap">
+                              {formatCurrency(bal, currency, fxRates)}{' '}
+                              <span className="text-[11px] text-emerald-400">
+                                ({formatCurrency(withdrawable, currency, fxRates)})
+                              </span>
+                            </div>
+                          </div>
+                        </div>
 
-                            <button
-                              type="button"
-                              onClick={() => onAdjustUserBalance(acc.email, 100)}
-                              className="btn-press min-h-[34px] px-2.5 rounded-xl bg-[#7c3aed]/20 hover:bg-[#7c3aed]/35 border border-[#7c3aed]/40 text-xs font-bold text-[#a78bfa] whitespace-nowrap"
-                            >
-                              +₹100
-                            </button>
+                        <div className="pt-2.5 border-t border-white/[0.06] flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onAdjustUserBalance(acc.email, 100)}
+                            className="btn-press min-h-[34px] px-2.5 rounded-xl bg-[#7c3aed]/20 hover:bg-[#7c3aed]/35 border border-[#7c3aed]/40 text-xs font-bold text-[#a78bfa] whitespace-nowrap"
+                          >
+                            +₹100
+                          </button>
 
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAdjustEmail(isAdjustingThis ? null : acc.email);
-                                setAdjustAmountDraft('250');
-                              }}
-                              className="btn-press min-h-[34px] px-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-bold text-slate-200 whitespace-nowrap"
-                            >
-                              Adjust +/-
-                            </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAdjustEmail(isAdjustingThis ? null : acc.email);
+                              setAdjustAmountDraft('250');
+                            }}
+                            className="btn-press min-h-[34px] px-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-bold text-slate-200 whitespace-nowrap"
+                          >
+                            Adjust +/-
+                          </button>
 
                             {!isThisOwner && (
                               <>
+                                <button
+                                  type="button"
+                                  data-testid={`admin-toggle-activate-${acc.uid}`}
+                                  onClick={() =>
+                                    onToggleDeactivateAccount(
+                                      acc.email,
+                                      !isDeactivated,
+                                      isDeactivated
+                                        ? ''
+                                        : 'Deactivated from Owner Admin Panel'
+                                    )
+                                  }
+                                  className={`btn-press min-h-[34px] px-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-1 whitespace-nowrap ${
+                                    isDeactivated
+                                      ? 'bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-500/40 text-emerald-300'
+                                      : 'bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/35 text-orange-300'
+                                  }`}
+                                >
+                                  {isDeactivated ? (
+                                    <>
+                                      <PlayCircle className="w-3 h-3" />
+                                      Activate
+                                    </>
+                                  ) : (
+                                    <>
+                                      <PauseCircle className="w-3 h-3" />
+                                      Deactivate
+                                    </>
+                                  )}
+                                </button>
+
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -1797,7 +1892,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                 </button>
                               </>
                             )}
-                          </div>
                         </div>
 
                         {isAdjustingThis && (
@@ -2284,29 +2378,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
                           className="rounded-xl bg-[#191928] border border-white/[0.07] p-3 space-y-2"
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                               <div className="text-[10.5px] font-bold text-[#a78bfa]">
                                 {mkt.category} · {mkt.subLabel}
                               </div>
-                              <div className="text-xs font-bold text-white leading-snug mt-0.5">
+                              <div className="text-xs font-bold text-white leading-snug mt-0.5 break-words">
                                 {mkt.question}
                               </div>
                             </div>
-                            {mkt.resolvedOutcome ? (
+                            {mkt.resolvedOutcome && (
                               <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 text-[10.5px] font-extrabold shrink-0">
                                 SETTLED: {mkt.resolvedOutcome.toUpperCase()}
                               </span>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled={isBusy}
-                                onClick={() => void handleCheckLiveWebAndSettle(mkt.id)}
-                                data-testid={`admin-resolve-btn-${mkt.id}`}
-                                className="btn-press px-2.5 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/35 border border-sky-500/35 text-sky-300 text-[11px] font-bold inline-flex items-center gap-1 shrink-0 disabled:opacity-50"
-                              >
-                                <Globe className="w-3 h-3" />
-                                {isBusy ? 'Checking Web...' : 'Check Live Web & Auto-Settle'}
-                              </button>
                             )}
                           </div>
 
@@ -2314,6 +2397,49 @@ export const AdminView: React.FC<AdminViewProps> = ({
                             YES Pool ₹{mkt.yesPool.toLocaleString('en-IN')} ({mkt.yesBettors}) · NO Pool ₹
                             {mkt.noPool.toLocaleString('en-IN')} ({mkt.noBettors})
                           </div>
+
+                          {!mkt.resolvedOutcome && (
+                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => void handleCheckLiveWebAndSettle(mkt.id)}
+                                data-testid={`admin-resolve-btn-${mkt.id}`}
+                                className="btn-press px-2.5 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/35 border border-sky-500/35 text-sky-300 text-[11px] font-bold inline-flex items-center gap-1 whitespace-nowrap disabled:opacity-50"
+                              >
+                                <Globe className="w-3 h-3" />
+                                {isBusy ? 'Checking Web...' : 'Check Live Web & Auto-Settle'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onResolvePredictionMarket?.({
+                                    marketId: mkt.id,
+                                    outcome: 'yes',
+                                    summary: 'Settled YES by Owner Console',
+                                  })
+                                }
+                                data-testid={`admin-settle-yes-${mkt.id}`}
+                                className="btn-press px-2.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-500/35 text-emerald-300 text-[11px] font-bold whitespace-nowrap"
+                              >
+                                Settle YES
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onResolvePredictionMarket?.({
+                                    marketId: mkt.id,
+                                    outcome: 'no',
+                                    summary: 'Settled NO by Owner Console',
+                                  })
+                                }
+                                data-testid={`admin-settle-no-${mkt.id}`}
+                                className="btn-press px-2.5 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/35 border border-rose-500/35 text-rose-300 text-[11px] font-bold whitespace-nowrap"
+                              >
+                                Settle NO
+                              </button>
+                            </div>
+                          )}
 
                           {(fb || mkt.resolutionSummary) && (
                             <div className="rounded-lg bg-[#13131f] border border-white/[0.06] p-2 text-[11px] text-slate-300 space-y-1">

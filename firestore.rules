@@ -1,0 +1,351 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1: Global Default-Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Pillar 3: Reusable Hardened Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isOwnerTokenAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'karnajoydas@gmail.com';
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'karnajoydas@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Entity Validators (Pillar 2)
+    function isValidUserPublic(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'referralCode', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'referralCode', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && data.referralCode is string && data.referralCode.size() >= 4 && data.referralCode.size() <= 24
+        && data.referralCode.matches('^[A-Z0-9_\\-]+$')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivate(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'email',
+          'name',
+          'balance',
+          'withdrawableBalance',
+          'realizedPnl',
+          'referralCode',
+          'referralRewardSettled',
+          'lastLoginAtMs',
+          'deactivated',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid',
+          'appUid',
+          'email',
+          'name',
+          'phone',
+          'balance',
+          'withdrawableBalance',
+          'realizedPnl',
+          'totalDepositedInr',
+          'totalWithdrawnInr',
+          'referralCode',
+          'referredByCode',
+          'referralRewardSettled',
+          'lastLoginAtMs',
+          'deactivated',
+          'deactivatedAtMs',
+          'deactivatedReason',
+          'deactivatedBy',
+          'frozen',
+          'banned',
+          'withdrawalsBlocked',
+          'tradingBlocked',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && (!('appUid' in data) || (data.appUid is string && data.appUid.size() <= 64))
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 80
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 24))
+        && data.balance is number && data.balance >= 0
+        && data.withdrawableBalance is number && data.withdrawableBalance >= 0
+        && data.realizedPnl is number
+        && (!('totalDepositedInr' in data) || (data.totalDepositedInr is number && data.totalDepositedInr >= 0))
+        && (!('totalWithdrawnInr' in data) || (data.totalWithdrawnInr is number && data.totalWithdrawnInr >= 0))
+        && data.referralCode is string && data.referralCode.size() >= 4 && data.referralCode.size() <= 24
+        && data.referralCode.matches('^[A-Z0-9_\\-]+$')
+        && (!('referredByCode' in data) || (data.referredByCode is string && data.referredByCode.size() <= 24))
+        && data.referralRewardSettled is bool
+        && data.lastLoginAtMs is number && data.lastLoginAtMs >= 0
+        && data.deactivated is bool
+        && (!('deactivatedAtMs' in data) || (data.deactivatedAtMs is number && data.deactivatedAtMs >= 0))
+        && (!('deactivatedReason' in data) || (data.deactivatedReason is string && data.deactivatedReason.size() <= 160))
+        && (!('deactivatedBy' in data) || (data.deactivatedBy is string && data.deactivatedBy.size() <= 24 && data.deactivatedBy in ['inactivity_60d', 'admin']))
+        && (!('frozen' in data) || data.frozen is bool)
+        && (!('banned' in data) || data.banned is bool)
+        && (!('withdrawalsBlocked' in data) || data.withdrawalsBlocked is bool)
+        && (!('tradingBlocked' in data) || data.tradingBlocked is bool)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserBet(data, userId) {
+      return data.keys().hasAll(['uid', 'marketId', 'choice', 'stake', 'multiplier', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'marketId', 'choice', 'stake', 'multiplier', 'status', 'payout', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.marketId is string && isValidId(data.marketId)
+        && data.choice is string && data.choice.size() <= 10 && data.choice in ['yes', 'no']
+        && data.stake is number && data.stake >= 1
+        && data.multiplier is number && data.multiplier >= 1
+        && data.status is string && data.status.size() <= 16 && data.status in ['open', 'won', 'lost']
+        && (!('payout' in data) || (data.payout is number && data.payout >= 0))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserTransaction(data, userId) {
+      return data.keys().hasAll(['uid', 'type', 'title', 'amount', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'type', 'title', 'amount', 'status', 'meta', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.type is string && data.type.size() <= 32
+        && data.type in [
+          'deposit',
+          'withdraw',
+          'trade_open',
+          'trade_close',
+          'gift',
+          'p2p_send',
+          'p2p_receive',
+          'referral_bonus',
+          'daily_checkin'
+        ]
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 120
+        && data.amount is number
+        && data.status is string && data.status.size() <= 24
+        && data.status in ['Completed', 'Credited', 'Settled', 'In Process', 'Under Review', 'Rejected']
+        && (!('meta' in data) || (data.meta is string && data.meta.size() <= 160))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMarket(data, marketId) {
+      return data.keys().hasAll([
+          'id',
+          'category',
+          'subLabel',
+          'question',
+          'isActive',
+          'yesPool',
+          'noPool',
+          'createdByUid',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'category',
+          'subLabel',
+          'question',
+          'isActive',
+          'yesPool',
+          'noPool',
+          'resolvedOutcome',
+          'createdByUid',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.id is string && data.id == marketId && isValidId(data.id)
+        && data.category is string && data.category.size() <= 32
+        && data.category in ['All Markets', 'Mobile Brands', 'Famous Games', 'Crypto', 'Sports', 'Political']
+        && data.subLabel is string && data.subLabel.size() >= 1 && data.subLabel.size() <= 80
+        && data.question is string && data.question.size() >= 5 && data.question.size() <= 240
+        && data.isActive is bool
+        && data.yesPool is number && data.yesPool >= 0
+        && data.noPool is number && data.noPool >= 0
+        && (!('resolvedOutcome' in data) || (data.resolvedOutcome is string && data.resolvedOutcome.size() <= 10 && data.resolvedOutcome in ['yes', 'no']))
+        && data.createdByUid is string && isValidId(data.createdByUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Connection validation document for startup check (non-PII, get-only)
+    match /test/{docId} {
+      allow get: if docId == 'connection';
+      allow list, write: if false;
+    }
+
+    // Admin registry (read-only by owner or existing admin; provisioned outside client SDK)
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list, create, update, delete: if false;
+    }
+
+    // Collection-group real-time directory read for Owner Admin only (no exists/get in allow list)
+    match /{path=**}/private/{docId} {
+      allow list: if isOwnerTokenAdmin();
+      allow get: if isAdmin();
+    }
+
+    // Public User Profiles (no PII)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isVerifiedUser();
+      allow list: if isOwnerTokenAdmin() || (isVerifiedUser() && existing().uid == request.auth.uid);
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserPublic(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isValidUserPublic(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']))
+        );
+      allow delete: if isValidId(userId) && isAdmin();
+
+      // PII-Isolated Private Account & Wallet State
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow list: if isOwnerTokenAdmin() || (isVerifiedUser() && existing().uid == request.auth.uid);
+        allow create: if isValidId(userId) && isValidId(docId) && docId == 'account'
+          && isOwner(userId)
+          && isValidUserPrivate(incoming(), userId)
+          && incoming().balance == 0
+          && incoming().withdrawableBalance == 0
+          && incoming().realizedPnl == 0
+          && incoming().referralRewardSettled == false
+          && incoming().deactivated == false
+          && !('frozen' in incoming() && incoming().frozen == true)
+          && !('banned' in incoming() && incoming().banned == true)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(docId) && docId == 'account'
+          && isValidUserPrivate(incoming(), userId)
+          && incoming().uid == existing().uid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            isAdmin() ||
+            (
+              isOwner(userId)
+              && incoming().deactivated == false
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'name',
+                'phone',
+                'appUid',
+                'lastLoginAtMs',
+                'deactivated',
+                'deactivatedAtMs',
+                'deactivatedReason',
+                'deactivatedBy',
+                'updatedAt'
+              ])
+            )
+          );
+        allow delete: if isValidId(userId) && isValidId(docId) && isAdmin();
+      }
+
+      // User Bets Subcollection (Master Gate checks parent user doc exists)
+      match /bets/{betId} {
+        allow get: if isValidId(userId) && isValidId(betId) && (isOwner(userId) || isAdmin());
+        allow list: if isOwnerTokenAdmin() || (isVerifiedUser() && existing().uid == request.auth.uid);
+        allow create: if isValidId(userId) && isValidId(betId)
+          && isOwner(userId)
+          && isValidUserBet(incoming(), userId)
+          && incoming().status == 'open'
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && exists(/databases/$(database)/documents/markets/$(incoming().marketId));
+        allow update: if isValidId(userId) && isValidId(betId)
+          && isValidUserBet(incoming(), userId)
+          && incoming().uid == existing().uid
+          && incoming().marketId == existing().marketId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && existing().status == 'open'
+          && isAdmin();
+        allow delete: if isValidId(userId) && isValidId(betId) && isAdmin();
+      }
+
+      // User Wallet Transactions Subcollection (Master Gate checks parent user doc exists)
+      match /transactions/{txId} {
+        allow get: if isValidId(userId) && isValidId(txId) && (isOwner(userId) || isAdmin());
+        allow list: if isOwnerTokenAdmin() || (isVerifiedUser() && existing().uid == request.auth.uid);
+        allow create: if isValidId(userId) && isValidId(txId)
+          && isValidUserTransaction(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && (
+            isAdmin() ||
+            (isOwner(userId) && incoming().type in ['deposit', 'withdraw'] && incoming().status == 'Under Review')
+          );
+        allow update: if isValidId(userId) && isValidId(txId)
+          && isValidUserTransaction(incoming(), userId)
+          && incoming().uid == existing().uid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && isAdmin();
+        allow delete: if isValidId(userId) && isValidId(txId) && isAdmin();
+      }
+    }
+
+    // Prediction Markets Collection (Admin-managed, signed-in readable)
+    match /markets/{marketId} {
+      allow get: if isValidId(marketId) && isVerifiedUser();
+      allow list: if isOwnerTokenAdmin() || (isVerifiedUser() && existing().isActive == true);
+      allow create: if isValidId(marketId)
+        && isAdmin()
+        && isValidMarket(incoming(), marketId)
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(marketId)
+        && isAdmin()
+        && isValidMarket(incoming(), marketId)
+        && incoming().id == existing().id
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(marketId) && isAdmin();
+    }
+  }
+}

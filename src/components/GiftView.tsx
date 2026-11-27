@@ -63,7 +63,7 @@ export const GiftView: React.FC<GiftViewProps> = ({ state, onRedeemCode }) => {
       try {
         await navigator.share({
           title: 'Join Ouroboros Trading & Games',
-          text: `Use my invite code ${myReferralCode} — unlock ₹${cfg.refereeBonusInr} after your 1st bet or trade!`,
+          text: `Use my invite code ${myReferralCode} — get ₹${cfg.refereeBonusInr} immediately to start playing!`,
           url: inviteLink,
         });
         return;
@@ -176,8 +176,8 @@ export const GiftView: React.FC<GiftViewProps> = ({ state, onRedeemCode }) => {
                 Invite &amp; Earn (Capped)
               </h2>
               <p className="text-[11px] sm:text-xs text-slate-400">
-                Friend gets <strong className="text-emerald-400">₹{cfg.refereeBonusInr}</strong> &amp; you earn{' '}
-                <strong className="text-emerald-400">₹{cfg.referrerBonusInr}</strong> once after their 1st bet or trade.
+                Friend gets <strong className="text-emerald-400">₹{cfg.refereeBonusInr}</strong> immediately to play &amp; you earn{' '}
+                <strong className="text-emerald-400">₹{cfg.referrerBonusInr}</strong> per valid signup (strictly capped).
               </p>
             </div>
           </div>

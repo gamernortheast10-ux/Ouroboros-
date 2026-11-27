@@ -406,6 +406,13 @@ export interface RegisteredAccount {
   referralEarnedInr?: number;
   lastCheckInDate?: string;
   checkInStreak?: number;
+  lastLoginAtMs?: number;
+  lastLoginAt?: string;
+  deactivated?: boolean;
+  deactivatedAtMs?: number;
+  deactivatedReason?: string;
+  deactivatedBy?: 'inactivity_60d' | 'admin';
+  firebaseUid?: string;
   createdAt?: string;
 }
 

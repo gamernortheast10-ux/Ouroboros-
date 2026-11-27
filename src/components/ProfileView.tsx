@@ -1161,7 +1161,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
 
             {/* Owner-Exclusive Admin Panel Entry (hidden completely from all other accounts) */}
-            {isOwnerAdmin(state.profile.email) && onNavigateAdmin && (
+            {state.isAuthenticated && isOwnerAdmin(state.profile.email) && onNavigateAdmin && (
               <div className="pt-1">
                 <button
                   type="button"
